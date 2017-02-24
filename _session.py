@@ -13,37 +13,13 @@ import os
 import arcpy
 import pythonaddins
 
-from _core import fc2fc
+from _core import fc2fc, TOC
 
 
 # =============================================================================
 # GLOBALS
 
 MXD = arcpy.mapping.MapDocument("CURRENT")
-
-
-class _TableOfContents(object):
-    """Table of Contents Object."""
-    def __init__(self):
-        self.mxd = arcpy.mapping.MapDocument("CURRENT")
-
-    @property
-    def dataframes(self):
-        return arcpy.mapping.ListDataFrames(MXD)
-
-    @property
-    def contents(self):
-        cont = {lyr.name: lyr for lyr in arcpy.mapping.ListLayers(self.mxd)}
-        cont.update({tbl.name: tbl for tbl in
-                     arcpy.mapping.ListTableViews(self.mxd)})
-        return cont
-
-    def __getitem__(self, key):
-        """Support dict-style item getting."""
-        return self.contents[key]
-
-
-TOC = _TableOfContents()
 
 
 def env_switch(env="in_memory"):
@@ -101,6 +77,16 @@ def remove_lyr(rm_lyr):
             pass
     return
 
+'''
+def remove(self):
+    """Wrapper for arcpy.mapping.RemoveLayer()."""
+    for df in TOC.dataframes:
+        try:
+            arcpy.mapping.RemoveLayer(df, TOC[self.name])
+        except:
+            pass
+    return
+'''
 '''
 def join_all(fc, uid, to_field=None):
         """Attempts to join a feature class with every table in the TOC."""

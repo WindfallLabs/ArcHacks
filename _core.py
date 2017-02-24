@@ -29,6 +29,54 @@ def is_active(exe="arcmap"):
     return False
 
 
+class TableOfContents(object):
+    """Table of Contents Object."""
+    def __init__(self, mxd="CURRENT"):
+        self.mxd_name = mxd
+        self.mxd = None
+        if self.mxd_name:
+            self.set_mxd(self.mxd_name)
+
+    def set_mxd(self, mxd):
+        self.mxd_name = mxd
+        self.mxd = arcpy.mapping.MapDocument(self.mxd_name)
+
+    def as_featurelyr(self, layer_name):
+        """Gets a layer as a feature layer (e.g. make selections on it)."""
+        flyr_name = layer_name + "_fclyr"
+        arcpy.MakeFeatureLayer_management(self[layer_name], flyr_name)
+        return flyr_name
+
+    @property
+    def dataframes(self):
+        return arcpy.mapping.ListDataFrames(self.mxd)
+
+    @property
+    def contents(self):
+        cont = {lyr.name: lyr for lyr in arcpy.mapping.ListLayers(self.mxd)}
+        cont.update({tbl.name: tbl for tbl in
+                     arcpy.mapping.ListTableViews(self.mxd)})
+        return cont
+
+    def remove(self, layer_name):
+        """Removes layer from TOC by name."""
+        for df in self.dataframes:
+            try:
+                arcpy.mapping.RemoveLayer(df, TOC.contents[layer_name])
+            except:
+                pass
+        return
+
+    def __getitem__(self, key):
+        """Support dict-style item getting."""
+        return self.contents[key]
+
+if is_active():
+    TOC = TableOfContents()
+else:
+    TOC = TableOfContents(None)
+
+
 # =============================================================================
 # LOCKS
 
