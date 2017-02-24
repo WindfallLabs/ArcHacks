@@ -30,6 +30,25 @@ def is_active(exe="arcmap"):
 
 
 # =============================================================================
+# LOCKS
+
+def get_locks(gdb):
+    """Generates a list of current locks in a gdb."""
+    locks = [f for f in os.listdir(gdb) if ".lock" in f]
+    for lock in locks:
+        try:
+            with open(gdb, "w") as f:
+                pass
+        except IOError:
+            yield lock
+
+
+def get_lock_users(gdb):
+    """Lists the users holding locks on a gdb."""
+    locks = [f.split(".")[1] for f in get_locks(gdb)]
+    return list(set(locks))
+
+# =============================================================================
 # STRING FORMATTERS
 
 def in_dataset(path):
@@ -66,7 +85,6 @@ def fill_na(fc, fields, repl_value=0):
         ne_fields = [f.name for f in field_objs if not f.editable]
         raise AttributeError("Field(s) not editable: {}".format(ne_fields))
     # Make sure repl_value matches type of all input fields
-    #m = [type(repl_value).__name__[:4] in f.type.lower() for f in field_objs]
     m = [f.type in type_map[type(repl_value).__name__] for f in field_objs]
     if not all(m):
         raise TypeError("Replace value and column types do not match")
@@ -80,7 +98,6 @@ def fill_na(fc, fields, repl_value=0):
     return
 
 
-# ESRI-Free
 def tbl2df(tbl, fields=["*"]):
     """Loads a table or featureclass into a pandas dataframe.
     Args:
@@ -232,6 +249,108 @@ def regex_fields(fc, field_regex, escape_tables=True):
 
 # =============================================================================
 # FIELD MAPS
+# Note: a field map is a string describing a field and its merge rules
+# Note: a field mapping is a list of field maps joined by ';'
+
+class EZFieldMap(object):
+    def __init__(self, fc):
+        self.fc = fc
+        self._mapping = arcpy.FieldMappings()
+        self._mapping.addTable(self.fc)
+        self._str = ""
+
+    @property
+    def as_str(self):
+        """Mapping as string."""
+        if self._str == "":
+            self._str = self._mapping.exportToString()
+        return self._str
+
+    @property
+    def as_list(self):
+        """Mapping as list."""
+        return self.as_str.split(";")
+
+    @property
+    def current_order(self):
+        """The current order of fields in mapping."""
+        order = []
+        for i in self.as_list:
+            order.append((self.as_list.index(i), i.split(" ")[0]))
+        return order
+
+    @property
+    def field_count(self):
+        """Number of fields in mapping."""
+        return len(self.current_order)
+
+    def reorder(self, new_order, drop=False):
+        """Reindexes the order of fields.
+        Args:
+            new_order (list): assign new index by position in list
+            drop (bool): allows dropping of fields on reorder; default False
+        Example:
+            >>> e.current_order
+            [(0, u'Overlay'), (1, u'FullName'), (2, u'Notes')]
+            >>> e.reorder([2, 0, 1])
+            >>> e.current_order
+            [(0, u'Notes'), (1, u'Overlay'), (2, u'FullName')]
+        """
+        if not drop and len(new_order) != self.field_count:
+            err_msg = ("Option to drop fields is disabled; "
+                       "Requires list of length: {}".format(self.field_count))
+            raise AttributeError(err_msg)
+        li = []
+        for n in new_order:
+            li.insert(new_order.index(n), self.as_list[n])
+        self._str = ";".join(li)
+        return
+
+    def rename(self, field_name, new_name):
+        """Renames a field."""
+        regex_name = re.sub("\$\.", "\\$\\.", field_name)
+        regex = "{}(?!,)".format(regex_name)
+        self._str = re.sub(regex, new_name, self._str)
+        return
+
+    def get_field_type(self, field):
+        """Returns a set of value types found within a field."""
+        s = set()
+        with arcpy.da.SearchCursor(self.fc, field) as cur:
+            for row in cur:
+                s.add(type(row[0]).__name__)
+        return s
+
+    def export_fc(self, location, output_name, qry=""):
+        """Calls fc2fc using the Field Mapping."""
+        # TODO: validation?
+        arcpy.FeatureClassToFeatureClass_conversion(
+            self.fc, location, output_name, qry, self.as_str)
+        return
+
+    def __str__(self):
+        return self._str
+
+'''
+import archacks
+mem = archacks.MemoryWorkspace()
+mem.add_layer("MSLAZONE")
+# Add field
+
+e = archacks.EZFieldMap("mem_MSLAZONE")
+e.reorder([34, 32, 33, 12, 15, 16, 17, 18, 21, 19, 20], True)
+e.rename("base_fixed", "Base")
+e.rename("overlay_fixed", "Overlay")
+e.rename("zoning_new", "Zoning")
+e.export_fc(gdb, "CityZoning")
+'''
+
+
+def get_fieldmap(fc):
+    """Get current fieldmapping as list."""
+    mappings = arcpy.FieldMappings()
+    mappings.addTable(fc)
+
 
 def make_fieldmap(fc, field, rename=None, merge_rule="First"):
     """Easy manipulation of FieldMap/Mappings. Not a valid FieldMap object."""
