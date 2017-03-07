@@ -303,6 +303,8 @@ def regex_fields(fc, field_regex, escape_tables=True):
 class EZFieldMap(object):
     def __init__(self, fc):
         self.fc = fc
+        self.path = arcpy.Describe(self.fc).catalogPath
+        self.location = os.path.dirname(self.path)
         self._mapping = arcpy.FieldMappings()
         self._mapping.addTable(self.fc)
         self._str = ""
@@ -326,6 +328,10 @@ class EZFieldMap(object):
         for i in self.as_list:
             order.append((self.as_list.index(i), i.split(" ")[0]))
         return order
+
+    @property
+    def field_names(self):
+        return [re.findall('"(.*)"', n)[0] for n in self.as_list]
 
     @property
     def field_count(self):
@@ -354,11 +360,33 @@ class EZFieldMap(object):
         self._str = ";".join(li)
         return
 
-    def rename(self, field_name, new_name):
+    def rename_field(self, field_name, new_name):
         """Renames a field."""
         regex_name = re.sub("\$\.", "\\$\\.", field_name)
+        regex_name = re.sub("\$_", "\\$_", regex_name)
         regex = "{}(?!,)".format(regex_name)
         self._str = re.sub(regex, new_name, self._str)
+        return
+
+    def rename_by_split(self, split_seq, case=''):
+        """Renames every column by splitting it at an input sequence.
+        Args:
+            split_seq (str): sequence to split field name by
+            case (str; options "UPPER", "LOWER", "TITLE") sets case of string;
+                defaults to existing
+        Use:
+            # Change 'County4_DBREAD_%View_OwnerAddress_<table>' to <table>
+            >>> m.rename_split("OwnerAddress_")
+        """
+        for n in self.field_names:
+            new_name = n.split(split_seq)[-1]
+            if case == "TITLE":
+                new_name = new_name.title()
+            elif case == "UPPER":
+                new_name = new_name.upper()
+            elif case == "LOWER":
+                new_name = new_name.lower()
+            self.rename_field(n, new_name)
         return
 
     def get_field_type(self, field):
@@ -369,29 +397,17 @@ class EZFieldMap(object):
                 s.add(type(row[0]).__name__)
         return s
 
-    def export_fc(self, location, output_name, qry=""):
+    def export_fc(self, output_name, location="", qry=""):
         """Calls fc2fc using the Field Mapping."""
         # TODO: validation?
+        if not location:
+            location = self.location
         arcpy.FeatureClassToFeatureClass_conversion(
             self.fc, location, output_name, qry, self.as_str)
         return
 
     def __str__(self):
         return self._str
-
-'''
-import archacks
-mem = archacks.MemoryWorkspace()
-mem.add_layer("MSLAZONE")
-# Add field
-
-e = archacks.EZFieldMap("mem_MSLAZONE")
-e.reorder([34, 32, 33, 12, 15, 16, 17, 18, 21, 19, 20], True)
-e.rename("base_fixed", "Base")
-e.rename("overlay_fixed", "Overlay")
-e.rename("zoning_new", "Zoning")
-e.export_fc(gdb, "CityZoning")
-'''
 
 
 def get_fieldmap(fc):
