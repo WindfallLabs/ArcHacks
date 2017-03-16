@@ -9,6 +9,8 @@ import os
 import re
 import sys
 import sqlite3 as lite
+from subprocess import Popen, PIPE
+from xml.dom import minidom as DOM
 
 import pandas as pd
 import ogr
@@ -57,6 +59,14 @@ class TableOfContents(object):
         cont.update({tbl.name: tbl for tbl in
                      arcpy.mapping.ListTableViews(self.mxd)})
         return cont
+
+    @property
+    def features_selected(self): # TODO: assert actually selected not total
+        sel = {}
+        for lyr in self.contents.values():
+            d = {lyr.name: int(arcpy.GetCount_management(lyr).getOutput(0))}
+            sel.update(d)
+        return sel
 
     def remove(self, layer_name):
         """Removes layer from TOC by name."""
@@ -111,6 +121,21 @@ def rm_ds(dataset_path):
         parts = os.path.split(dataset_path)
         return os.path.join(os.path.split(parts[0])[0], parts[1])
     return dataset_path
+
+
+def unc_path(drive_path, unc_path):
+    """Replaces a mapped network drive with a UNC path.
+    Example:
+        >>> unc_path('I:/workspace', r'\\cityfiles\stuff')
+        '\\\\cityfiles\\stuff\\workspace'
+    """
+    drive_path = drive_path.replace("/", "\\")
+    drive = os.path.splitdrive(drive_path)[0]
+    p = Popen("net use", stdout=PIPE, creationflags=0x08000000)
+    raw_result = p.communicate()[0]
+    result = re.findall("{}(.*)\r".format(drive), raw_result)[0]
+    unc = result.strip().split(" ")[0]
+    return drive_path.replace(drive, unc)
 
 
 # =============================================================================
@@ -223,6 +248,14 @@ def drop_all(fc, keep=[]):
     return
 
 
+def field_value_set(fc, field):
+    s = set()
+    with arcpy.da.SearchCursor(fc, field) as cur:
+        for row in cur:
+            s.add(row[0])
+    return s
+
+
 def is_unique(fc, fields):
     """Checks if fields of a feature class have all unique values."""
     if isinstance(fields, str):
@@ -286,7 +319,32 @@ def list_joins(fc):
     return s
 
 
-def regex_fields(fc, field_regex, escape_tables=True):
+def oid_by_regex(fc, regex, field, oid_field="OBJECTID"):
+    """Yields record oids where field value matches regex."""
+    with arcpy.da.SearchCursor(fc, [oid_field, field]) as cur:
+        for row in cur:
+            if row[1] and re.findall(regex, row[1]):
+                yield row[0]
+
+
+def layer_by_regex(regex):
+    """Returns the full name of a layer based on a substring or regex."""
+    for layer in TOC.contents.keys():
+        if re.findall("(?i){}".format(regex), layer):
+            return layer
+
+
+def regex_selection(fc, regex, field, id_field="OBJECTID"):
+    """For when LIKE statements just don't cut the '(?i)mustard'."""
+    ids = list(oid_by_regex(fc, regex, field, id_field))
+    if not ids:
+        raise IOError("Nothing found")
+    in_qry = "{} IN ({})".format(id_field, ', '.join([str(i) for i in ids]))
+    arcpy.SelectLayerByAttribute_management(fc, where_clause=in_qry)
+    return
+
+
+def field_by_regex(fc, field_regex, escape_tables=True):
     """Returns a list of field names matching a regular expression."""
     for f in arcpy.Describe(fc).fields:
         if escape_tables:
@@ -303,7 +361,8 @@ def regex_fields(fc, field_regex, escape_tables=True):
 class EZFieldMap(object):
     def __init__(self, fc):
         self.fc = fc
-        self.path = arcpy.Describe(self.fc).catalogPath
+        self.fc_desc = arcpy.Describe(fc)
+        self.path = self.fc_desc.catalogPath
         self.location = os.path.dirname(self.path)
         self._mapping = arcpy.FieldMappings()
         self._mapping.addTable(self.fc)
@@ -330,13 +389,21 @@ class EZFieldMap(object):
         return order
 
     @property
-    def field_names(self):
+    def field_names(self):  # TODO: Aliases?; get names from current_order?
         return [re.findall('"(.*)"', n)[0] for n in self.as_list]
 
     @property
     def field_count(self):
         """Number of fields in mapping."""
         return len(self.current_order)
+
+    def add(self, new_fieldmap):
+        pass
+
+    def is_safe(self):
+        """Returns True if all field names are >= 10 in length."""
+        # TODO: check for invalid names, etc
+        return all([len(f) <= 10 for f in self.field_names])
 
     def reorder(self, new_order, drop=False):
         """Reindexes the order of fields.
@@ -361,7 +428,12 @@ class EZFieldMap(object):
         return
 
     def rename_field(self, field_name, new_name):
-        """Renames a field."""
+        """Renames a field.
+        Args:
+            field_name (str): field to rename
+            new_name (str): new field name
+        """
+        # Handle temp and permanent join fields
         regex_name = re.sub("\$\.", "\\$\\.", field_name)
         regex_name = re.sub("\$_", "\\$_", regex_name)
         regex = "{}(?!,)".format(regex_name)
@@ -390,7 +462,7 @@ class EZFieldMap(object):
         return
 
     def get_field_type(self, field):
-        """Returns a set of value types found within a field."""
+        """Returns a set of value types (Python) found within a field."""
         s = set()
         with arcpy.da.SearchCursor(self.fc, field) as cur:
             for row in cur:
@@ -398,7 +470,12 @@ class EZFieldMap(object):
         return s
 
     def export_fc(self, output_name, location="", qry=""):
-        """Calls fc2fc using the Field Mapping."""
+        """Calls fc2fc using the Field Mapping.
+        Args:
+            output_name (str): name of output data
+            location (str): location of output (defaults to current location)
+            qry (str): where clause
+        """
         # TODO: validation?
         if not location:
             location = self.location
@@ -491,8 +568,125 @@ def fc2fc(in_fc, full_out_path, where=None, limit_fields=None):
         in_fc, out_path, out_name, where, mapping)
 
 
+# Source:
+# https://blogs.esri.com/esri/arcgis/2013/04/23/updating-arcgis-com-hosted-feature-services-with-python/
+class Service(object):
+    def __init__(self, mxd_file, host="My Hosted Services", con="",
+                 service_type="FeatureServer", enable_caching=False,
+                 allow_overwrite=True, capabilities=["Query"]):
+        """Uploads an MXD as a Web Service."""
+        self.mxd = arcpy.mapping.MapDocument(mxd_file)
+        if self.mxd.title == "":
+            raise IOError("MXD Title (metadata) cannot be blank")
+
+        self.host = host
+
+        if not con:
+            self.con = self.host.upper().replace(" ", "_")
+        self.sdd = os.path.abspath("{}.sddraft".format(self.mxd.title))
+        self.sd = os.path.abspath("{}.sd".format(self.mxd.title))
+        self.analysis = arcpy.mapping.CreateMapSDDraft(
+            self.mxd, self.sdd, self.mxd.title, self.con)
+
+        if self.analysis["errors"]:
+            raise Exception(self.analysis["errors"])
+
+        # DOM Editing
+        self.doc = DOM.parse(self.sdd)
+        self._set_service_type(service_type)
+        self._set_caching(enable_caching)
+        self._set_web_capabilities(capabilities)
+        self._set_overwrite(allow_overwrite)
+
+    def update_draft(self):
+        with open(self.sdd, "w") as f:
+            self.doc.writexml(f)
+        return
+
+    def _set_caching(self, enable_caching):
+        cache = str(enable_caching).lower()
+        conf = 'ConfigurationProperties'
+        configProps = self.doc.getElementsByTagName(conf)[0]
+        propArray = configProps.firstChild
+        propSets = propArray.childNodes
+        for propSet in propSets:
+            keyValues = propSet.childNodes
+            for keyValue in keyValues:
+                if keyValue.tagName == 'Key':
+                    if keyValue.firstChild.data == "isCached":
+                        keyValue.nextSibling.firstChild.data = cache
+        return
+
+    def _set_service_type(self, service_type):
+        typeNames = self.doc.getElementsByTagName('TypeName')
+        for typeName in typeNames:
+            if typeName.firstChild.data == "MapServer":
+                typeName.firstChild.data = service_type
+        return
+
+    def _set_web_capabilities(self, capabilities):
+        """Sets the web capabilities.
+        Args:
+            capabilities (list): list of capabilities
+        """
+        capability = ",".join(capabilities)
+        configProps = self.doc.getElementsByTagName('Info')[0]
+        propSets = configProps.firstChild.childNodes
+        for propSet in propSets:
+            keyValues = propSet.childNodes
+            for keyValue in keyValues:
+                if keyValue.tagName == 'Key':
+                    if keyValue.firstChild.data == "WebCapabilities":
+                        keyValue.nextSibling.firstChild.data = capability
+        return
+
+    def _set_overwrite(self, overwrite):
+        replace = "esriServiceDefinitionType_Replacement"
+        tagsType = self.doc.getElementsByTagName('Type')
+        for tagType in tagsType:
+            if tagType.parentNode.tagName == 'SVCManifest':
+                if tagType.hasChildNodes():
+                    tagType.firstChild.data = replace
+
+        tagsState = self.doc.getElementsByTagName('State')
+        for tagState in tagsState:
+            if tagState.parentNode.tagName == 'SVCManifest':
+                if tagState.hasChildNodes():
+                    tagState.firstChild.data = "esriSDState_Published"
+        return
+
+    def upload(self):
+        self.update_draft()
+        arcpy.StageService_server(self.sdd, self.sd)
+        arcpy.UploadServiceDefinition_server(
+            self.sd, self.host, self.mxd.title,
+            "", "", "", "", "OVERRIDE_DEFINITION",
+            "SHARE_ONLINE", "PUBLIC", "SHARE_ORGANIZATION")
+        return
+
+
+def get_props(doc):
+    configProps = doc.getElementsByTagName('Info')[0]
+    propSets = configProps.firstChild.childNodes
+    for propSet in propSets:
+        keyValues = propSet.childNodes
+        for keyValue in keyValues:
+            if keyValue.tagName == 'Key':
+                if keyValue.firstChild.data == "WebCapabilities":
+                    return keyValue.nextSibling.firstChild.data.split(",")
+
 # =============================================================================
 # CONVENIENCE OBJECTS
+
+
+class FeatureObject(arcpy._mapping.Layer):
+    def __init__(self, feature):
+        arcpy._mapping.Layer(feature)
+
+    def new_method(self, msg="test"):
+        return msg
+
+
 
 class _SpatialRelations(object):
     __doc__ = """
@@ -515,26 +709,69 @@ class _SpatialRelations(object):
         CLOSEST - The feature in the join features that is closest to a target feature is matched. See the usage tip for more information. Specify a distance in the search_radius parameter.
         CLOSEST_GEODESIC - Same as CLOSEST except that geodesic distance is used rather than planar distance. Choose this if your data covers a large geographic extent or the coordinate system of the inputs is unsuitable for distance calculations.
         """
-
-    def __init__(self):
+    def __init__(self, fc):
+        self.name = fc.name
         self.all = []
         self.definitions = {}
         self._set_defs()
         self._set_attrs()
+        self
 
     def _set_defs(self):
         self.definitions = {
             pair[0].strip(): pair[1].strip() for pair in
                 [line.split(" - ") for line in self.__doc__.split("\n")]
             if pair[0].strip()}
-
+    '''
     def _set_attrs(self):
         for k in self.definitions.keys():
             self.all.append(k)
             setattr(self, k, k)
         self.all.sort()
+    '''
 
-SpatialRelations = _SpatialRelations()
+    def _select_by_loc(self, sel_type):
+        def select(select_features, search_distance=""):
+            arcpy.SelectLayerByLocation_management(
+                self.name, sel_type, select_features, search_distance)
+        return select
+
+    def Where(self, qry):
+        sel_method = "NEW_SELECTION"
+        if TOC.contents[self.name].getSelectionSet():
+            sel_method = "SUBSET_SELECTION"
+        arcpy.SelectLayerByAttribute_management(
+            self.name, sel_method, qry)
+
+    def _set_attrs(self):
+        for k in self.definitions.keys():
+            self.all.append(k)
+            setattr(self, k.title(), self._select_by_loc(k))
+        self.all.sort()
+
+
+class FC(object):
+    def __init__(self, fc):
+        self.desc = arcpy.Describe(fc)
+        self.name = self.desc.name
+        self.source  = self.desc.catalogPath
+        self.select = _SpatialRelations(self)
+        self.lyr = arcpy._mapping.Layer(self.name)
+
+    @property
+    def fields(self):
+        return {f.name: f for f in self.desc.fields}
+
+    @property
+    def selected_features(self):
+        try:
+            return len(self.lyr.getSelectionSet())
+        except TypeError:
+            return 0
+
+    def join(self, pkey, fkey, tbl):
+        arcpy.JoinField_management(self.name, pkey, tbl, fkey)
+        return
 
 
 def tabulate_SRIDs():
@@ -564,3 +801,108 @@ def tabulate_SRIDs():
     #for pair in zip(headers, types):
     #    arcpy.AddField_management("SRIDs", pair[0], map_field_type(pair[1]),
     return df
+
+
+
+'''
+
+
+q = """
+    SELECT Parcels.ParcelID, AgForest.Type
+    FROM mem_Parcels
+    JOIN View_Key
+        ON Parcels.ParcelID = View_Key.StateGeo
+    JOIN AgForest
+        ON View_Key.PropertyID = AgForest.PropertyID
+    WHERE AgForest.Type_Desc IS NOT NULL AND AgForest.Type NOT IN ('NQ', 'Forest')
+    """
+'''
+
+def parse(sql):
+    # Clean
+    sql = sql.strip()
+    sql = re.sub("\s+", " ", sql)
+
+    # Get all words between select and from
+    return_fields = re.findall("(?i)select (.*) from", sql)[0].split(", ")
+    # Get single word after from
+    sel_layer = re.findall("(?i)from (\w+)\\b", sql)[0]
+    # Get single word after join
+    join_layers = re.findall("(?i)join (\w+)\\b", sql)
+    # Replace layers with full name of layer
+    for jlyr in join_layers:
+        join_layers[join_layers.index(jlyr)] = layer_by_regex(jlyr)
+    # Get all instances of word = word
+    joins = re.findall("(?i)on (\w+\.\w+ = \w+\.\w+)", sql)
+    # Replace layer names will full layer name
+    for j in joins:
+        rejoin = []
+        for join in j.split(" = "):
+            lyr = join.split(".")[0]
+            join = join.replace(lyr, layer_by_regex(lyr))
+            rejoin.append(join)
+        joins[joins.index(j)] = rejoin
+    # Get anything after where and before group or the end of the string
+    where = list(re.findall("(?i)where (.* group)|where (.*$)", sql)[0])
+    where.remove("")
+    where = re.sub("(?i) group", "", where[0])
+    # Get anything after group by and before having or the end of the string
+    group_by = re.findall("(?i)group by (.* having)|group by (.*$)", sql)
+    if group_by:
+        group_by = list(group_by[0])
+        group_by.remove("")
+        group_by = re.sub("(?i) having", "", group_by[0])
+
+    r = {
+         "return_fields": return_fields,
+         "sel_layer": sel_layer,
+         "join_layers": join_layers,
+         "joins": joins,
+         "where": where,
+         "group_by": group_by
+         }
+
+    # Remove keys without values; will cause KeyError if called
+    [r.pop(k) for k in r.keys() if not r[k]]
+
+    return r
+'''
+
+def execute_sql(sql):
+    parsed = archacks.parse(sql)
+    if not parsed["sel_layer"].startswith("mem_"):
+        raise IOError("SQL queries must use features in MemoryWorkspace.")
+    # Join
+    if parsed.has_key("join_layers") and parsed.has_key("joins"):
+        for join in parsed["joins"]:
+            # Get key, join layer, and foreign key for join
+            key = join[0]
+            skey = key.split(".")[1]
+            jlyr = join[1][:join[1].rfind(".")]  # TODO: split
+            fkey = join[1]
+            sfkey = fkey.split(".")[-1]
+            try:
+                arcpy.JoinField_management(
+                    parsed["sel_layer"], key, jlyr, fkey)
+            except:
+                arcpy.JoinField_management(
+                    parsed["sel_layer"], skey, jlyr, sfkey)
+    # Select by WHERE clause
+    # Reduce fields using Field Mapping
+    # Export
+
+
+
+
+    m = EZFieldMap(parsed["sel_layer"])
+
+    m.export_fc(???)
+
+
+
+arcpy.JoinField_management("mem_Parcels", "PropertyID", "County4.DBREAD.%AgForest", "PropertyID", fields="")
+
+
+'''
+
+

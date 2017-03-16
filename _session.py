@@ -9,17 +9,21 @@ Python Window.
 """
 
 import os
+import re
 
 import arcpy
 import pythonaddins
 
-from _core import fc2fc, TOC
+from _core import fc2fc, TOC, is_active
 
 
 # =============================================================================
 # GLOBALS
 
-MXD = arcpy.mapping.MapDocument("CURRENT")
+if is_active():
+    MXD = arcpy.mapping.MapDocument("CURRENT")
+else:
+    MXD = None
 
 
 def env_switch(env="in_memory"):
@@ -130,10 +134,26 @@ class MemoryWorkspace(object):
         if rename:
             out_name = prefix.format(rename)
         else:
-            out_name = prefix.format(fc_name.replace(" ", "_"))
+            name = arcpy.Describe(fc).name
+            if len(re.findall("\.", name)) > 1:
+                name = name.split(".")[-1]
+            out_name = prefix.format(name)
         fc2fc(fc, "/".join([self.path, out_name]), limit_fields)
-        # TODO: catch error if path is used
-        apply_symbology(out_name, fc_name, hide_old)
+        # Try to stylize new layer after the non-memory layer's symbology
+        if fc in TOC.contents.keys():
+            apply_symbology(out_name, fc_name, hide_old)
+        return
+
+    def add_table(self, tbl, rename=None):
+        prefix = "mem_{}"
+        if rename:
+            out_name = prefix.format(rename)
+        else:
+            name = arcpy.Describe(tbl).name
+            if len(re.findall("\.", name)) > 1:
+                name = name.split(".")[-1]
+            out_name = prefix.format(name)
+        arcpy.TableToTable_conversion(tbl, "in_memory", out_name)
         return
 
     def remove(self, fc):
@@ -159,3 +179,8 @@ class MemoryWorkspace(object):
         if warnings:
             print("Could not join with: {}".format(warnings))
         return
+
+
+#arcpy._mapping.Layer.join = types.MethodType(func, arcpy._mapping.Layer)
+#archacks.TOC.contents["mem_Parcels"].join("ParcelID", "StateGeo", "mem_View_Key")
+
