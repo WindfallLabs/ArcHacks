@@ -4,16 +4,20 @@
 This work-in-progress suite of wrappers and utilities was primarily created for
 working with ESRI ArcMap/Catalog on a virtual machine (or any painfully slow computer).  
 Further, this package is engineered to prevent lag by parameter validation when
-using the Python Window interactively.  
+using the Python Window interactively, and to enable better in-memory processing.  
 
 ## Installation
 Unzip this repository and place in your Python's `site-packages` folder.  
+e.g.  
+`C:\Python27\ArcGIS10.3\Lib\site-packages\archacks`  
 
 ## Brief Overview of Current Features
 * Integration with Pandas
 * Makes use of the `in_memory` workspace and treats it as a Python object  
 * Get field names by regular expression  
 * Sane field-mapping handlers with handy methods (see below)  
+* Data as "MemoryLayer" objects  
+* A Service object  
 
 
 ## Brief List of Planned Features
@@ -53,3 +57,44 @@ Unzip this repository and place in your Python's `site-packages` folder.
      (8, u'Acre'), (9, u'Shape_Length'), (10, u'Shape_Area')]
     >>> loc = r'C:\projects\data\some.gdb\dataset'  # output location
     >>> m.export_fc("pop2016_1", loc)  # Export the mapping as a feature class
+
+## MemoryLayer example
+
+    >>> nhoods_path = r'Database Connections\gisrep.sde\gisrep.SDE.AdministrativeArea\gisrep.SDE.NH_Council_Boundaries'  
+    >>> mains_path = r'Database Connections\gisrep.sde\gisrep.SDE.SanitarySewer\gisrep.SDE.ssGravityMain'  
+    >>> parcel_path = r'Database Connections\gisrep.sde\gisrep.SDE.Parcels\gisrep.SDE.Parcels'  
+    >>> owner_path = r'Database Connections\County4.sde\County4.dbo.View_OwnerAddress'  
+    >>> forest_path = r'Database Connections\County4.sde\County4.dbo.AgForest'  
+    
+    # Create MemoryWorkspace and load data into memory  
+    >>> mem = MemoryWorkspace()  
+    >>> mem.add_layer(mains_path)  
+    >>> mem.add_layer(nhoods_path)  
+    >>> mem.add_layer(parcel_path)  
+    >>> mem.add_table(owner_path)  
+    >>> mem.add_table(forest_path)  
+    >>> assert len(mem.contents) == 5  
+
+    # Instantiate MemoryLayer objects  
+    >>> mains = mem.get_memorylayer("mem_ssGravityMain")  
+    >>> nhoods = mem.get_memorylayer("mem_NH_Council_Boundaries")  
+    >>> parcels = mem.get_memorylayer("mem_Parcels")  
+
+    # Test field map edits  
+    >>> mains.fmap.reorder([0, 2, 5], True)  
+    >>> mains.fmap.update()  
+    >>> assert len(mains.fields) == 5  
+
+    # Reduce parcels to intersection with nhoods & join with owners  
+    >>> parcels.selection.Intersect(nhoods)  
+    >>> parcels.fmap.update()  
+    >>> assert parcels.feature_count == 25237  
+
+    # Join parcels with tables in memory and unjoin  
+    >>> parcels.join('mem_View_OwnerAddress', "ParcelID", "StateGeo")  
+    >>> assert "City" in parcels.fields  
+    >>> parcels.join('mem_AgForest', "PropertyID", "PropertyID")  
+    >>> assert "ProdCommodity" in parcels.fields  
+    >>> parcels.drop_join('mem_View_OwnerAddress')  
+    >>> assert "City" not in parcels.fields  
+
