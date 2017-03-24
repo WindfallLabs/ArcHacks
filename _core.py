@@ -353,11 +353,37 @@ def field_by_regex(fc, field_regex, escape_tables=True):
 
 
 # =============================================================================
+# QUERIES
+
+def like_list(field, values, case="", condition="OR"):
+    """Make a `<field> LIKE '%value%'` string for list of values.
+    Args:
+        field (str): field to use in LIKE statement; may need to be quoted
+        values (iterable): values to convert to LIKE query
+        condition (str): 'AND' or 'OR' (default 'OR')
+        case (str): optionally convert values to title, upper, or lower
+    Returns joined string.
+    Usage:
+        >>> like_list('"Subdivision"', ["Ranch", "Apple"], case="upper")
+        'Subdivision" LIKE \'%RANCH%\' OR "Subdivision" LIKE \'%APPLE%\'"'
+    """
+    cond = " {} ".format(condition)
+    if case.lower() == 'title':
+        values = [v.title() for v in values]
+    elif case.lower() == 'upper':
+        values = [v.upper() for v in values]
+    elif case.lower() == 'lower':
+        values = [v.lower() for v in values]
+    q = cond.join(["{} LIKE '%{}%'".format(field, v) for v in values])
+    return q
+
+
+# =============================================================================
 # FIELD MAPS
 # Note: a field map is a string describing a field and its merge rules
 # Note: a field mapping is a list of field maps joined by ';'
 # TODO: remove?
-
+'''
 def get_fieldmap(fc):
     """Get current fieldmapping as list."""
     mappings = arcpy.FieldMappings()
@@ -400,7 +426,7 @@ def get_field_type(fc, field):
         for row in cur:
             s.add(type(row[0]).__name__)
     return s
-
+'''
 
 # TODO: 'spatial join' that copies a field from the selected to the
 #  intersecting features

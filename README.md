@@ -1,11 +1,55 @@
 # ArcHacks (WIP)
+Extensions and wrappers for ESRI's `arcpy` Python package (not included).  
 
 ## Purpose
 This work-in-progress suite of wrappers and utilities was primarily created for
 working with ESRI ArcMap/Catalog on a virtual machine (or any painfully slow computer).  
-Further, this package is engineered to prevent lag by parameter validation when
-using the Python Window interactively, and to enable better in-memory processing.  
+Further, this package is engineered to prevent lag when using the Python Window
+interactively by skipping ESRI's built-in parameter validation.  
+These tools can be used in ArcMap or in stand-alone scripts.  
 
+The highlight of this package is in-memory processing using object-oriented data objects.  
+This allows us, for instance, to wrap JOIN and SELECT operations as a methods
+of the in-memory data like so:  
+
+    import archacks
+    # Instantiate the memory workspace
+    mem = archacks.MemoryWorkspace()
+    # Add the data; this method renames the data to "mem_<data>" by default  
+    mem.add_layer("C:/workspace/parcels.shp")  
+    # Get the data as a MemoryLayer (an object-oriented data object)  
+    parcels = mem.get_memorylayer("mem_parcels")  
+    # Add a table to memory
+    mem.add_table("C:/workspace/OwnerInfo.csv")
+    # Join parcel layer to OwnerInfo table  
+    parcels.join("mem_OwnerInfo", "ParcelID", "StateGeo")  
+    # Select by intersection with city_limits data object  
+    # Assume we've done the same sequence of steps for a city limits layer
+    parcels.selection.Intersect(city_limits)  
+    # Make a selection using a query  
+    parcels.selection.where('"Subdivision" LIKE \'APPLE%\'")  
+
+Convenient, right?  
+
+Then there's the problem of reordering and editing the schema of the attribute
+table -- which ESRI calls a Field Mapping for some reason... ArcHacks makes this
+easy by wrapping the nonsensical FieldMap and FieldMapping objects (which are
+really just strings). Let's take our joined parcels-owner data from above and
+limit the fields to only those we want in our output data:  
+
+    # Get the field mapping (current schema)  
+    schema = archacks.EZFieldMap(parcels)  
+    # Set the new order of fields by index; by name is planned
+    new_order = [0, 14, 15, 16, 17, 18, 20, 21, 22, 23]  
+    schema.reorder(new_order, drop=True)  
+    # Export the data using the new schema
+    schema.export(parcel_owners)  
+    
+Re-mapping the fields by name is planned, but not yet available. Get the current
+order of the fields using the `.current_order` property. The export method supports
+selections and only those selected features are exported with the new schema.  
+    
+    
 ## Installation
 Unzip this repository and place in your Python's `site-packages` folder.  
 e.g.  
@@ -14,87 +58,15 @@ e.g.
 ## Brief Overview of Current Features
 * Integration with Pandas
 * Makes use of the `in_memory` workspace and treats it as a Python object  
-* Get field names by regular expression  
-* Sane field-mapping handlers with handy methods (see below)  
+* Get field names by regular expression (available, but WIP)  
+* Sane field-mapping handlers (see above)  
 * Data as "MemoryLayer" objects  
-* A Service object  
+* A Service object (available, but WIP)  
 
 
 ## Brief List of Planned Features
+* Remap schema/field mapping by field name rather than just index  
 * Use osgeo as faster alternative to common arcpy bottlenecks  
 * MXD and PDF metadata handler (and append MXD metadata to PDF on export)  
 * Some kind of testing suite  
 * Documentation  
-
-
-## EZFieldMap example
-
-    >>> import archacks
-    >>> m = archacks.EZFieldMap("pop2016")  # Load a field mapping into 'm'
-    >>> m.field_names  # Lists field names
-    [u'GEOID10', u'Name', u'EstTotPop16', u'EstNewHU16', u'ward16',
-     u'Shape_Length', u'Shape_Area', u'Scenario1', u'Scenario2', u'Acre',
-     u'Scenario3', u'Scenario4', u'Sheet1$_GEOID10', u'Sheet1$_HU2016']
-    >>> m.rename_by_split("$_")  # 'Sheet1$_HU2016' becomes 'HU2016'
-    >>> m.current_order  # List of tuples of index, field name
-    [(0, u'GEOID10'), (1, u'Name'), (2, u'EstTotPop16'), (3, u'EstNewHU16'),
-     (4, u'ward16'), (5, u'Shape_Length'), (6, u'Shape_Area'), (7, u'Scenario1'),
-     (8, u'Scenario2'), (9, u'Acre'), (10, u'Scenario3'), (11, u'Scenario4'),
-     (12, u'GEOID10'), (13, u'HU2016')]
-    >>> new = [0, 1, 3, 2, 13, 4, 5, 6, 7, 8, 9]  # new order of fields by index
-    >>> m.reorder(new, True)  # True allows dropping fields
-    >>> m.rename_field("Name", "NhoodName")
-    >>> m.rename_field("HU2016", "EstTotHU16")
-    >>> m.current_order
-    [(0, u'GEOID10'), (1, u'NhoodName'), (2, u'EstNewHU16'), (3, u'EstTotPop16'),
-     (4, u'EstTotHU16'), (5, u'ward16'), (6, u'Shape_Length'), (7, u'Shape_Area'),
-     (8, u'Scenario1'), (9, u'Scenario2'), (10, u'Acre')]
-    >>> new = [0, 3, 4, 2, 1, 5, 8, 9, 10, 6, 7]
-    >>> m.reorder(new)
-    >>> m.current_order
-    [(0, u'GEOID10'), (1, u'EstTotPop16'), (2, u'EstTotHU16'), (3, u'EstNewHU16'),
-     (4, u'NhoodName'), (5, u'ward16'), (6, u'Scenario1'), (7, u'Scenario2'),
-     (8, u'Acre'), (9, u'Shape_Length'), (10, u'Shape_Area')]
-    >>> loc = r'C:\projects\data\some.gdb\dataset'  # output location
-    >>> m.export_fc("pop2016_1", loc)  # Export the mapping as a feature class
-
-## MemoryLayer example
-
-    >>> nhoods_path = r'Database Connections\gisrep.sde\gisrep.SDE.AdministrativeArea\gisrep.SDE.NH_Council_Boundaries'  
-    >>> mains_path = r'Database Connections\gisrep.sde\gisrep.SDE.SanitarySewer\gisrep.SDE.ssGravityMain'  
-    >>> parcel_path = r'Database Connections\gisrep.sde\gisrep.SDE.Parcels\gisrep.SDE.Parcels'  
-    >>> owner_path = r'Database Connections\County4.sde\County4.dbo.View_OwnerAddress'  
-    >>> forest_path = r'Database Connections\County4.sde\County4.dbo.AgForest'  
-    
-    # Create MemoryWorkspace and load data into memory  
-    >>> mem = MemoryWorkspace()  
-    >>> mem.add_layer(mains_path)  
-    >>> mem.add_layer(nhoods_path)  
-    >>> mem.add_layer(parcel_path)  
-    >>> mem.add_table(owner_path)  
-    >>> mem.add_table(forest_path)  
-    >>> assert len(mem.contents) == 5  
-
-    # Instantiate MemoryLayer objects  
-    >>> mains = mem.get_memorylayer("mem_ssGravityMain")  
-    >>> nhoods = mem.get_memorylayer("mem_NH_Council_Boundaries")  
-    >>> parcels = mem.get_memorylayer("mem_Parcels")  
-
-    # Test field map edits  
-    >>> mains.fmap.reorder([0, 2, 5], True)  
-    >>> mains.fmap.update()  
-    >>> assert len(mains.fields) == 5  
-
-    # Reduce parcels to intersection with nhoods & join with owners  
-    >>> parcels.selection.Intersect(nhoods)  
-    >>> parcels.fmap.update()  
-    >>> assert parcels.feature_count == 25237  
-
-    # Join parcels with tables in memory and unjoin  
-    >>> parcels.join('mem_View_OwnerAddress', "ParcelID", "StateGeo")  
-    >>> assert "City" in parcels.fields  
-    >>> parcels.join('mem_AgForest', "PropertyID", "PropertyID")  
-    >>> assert "ProdCommodity" in parcels.fields  
-    >>> parcels.drop_join('mem_View_OwnerAddress')  
-    >>> assert "City" not in parcels.fields  
-

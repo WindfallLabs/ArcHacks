@@ -114,7 +114,7 @@ def join_all(fc, uid, to_field=None):
         return
 '''
 
-
+'''
 class MemoryWorkspace(object):
     """MemoryWorkspace; not to be used in scripts."""
     def __init__(self):
@@ -179,7 +179,7 @@ class MemoryWorkspace(object):
         if warnings:
             print("Could not join with: {}".format(warnings))
         return
-
+'''
 
 #arcpy._mapping.Layer.join = types.MethodType(func, arcpy._mapping.Layer)
 #archacks.TOC.contents["mem_Parcels"].join("ParcelID", "StateGeo", "mem_View_Key")

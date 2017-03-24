@@ -8,9 +8,13 @@ Object Oriented in-memory processing using arcpy.
 
 import os
 import re
-import pandas as pd
 
 import arcpy
+
+from archacks import tbl2df, is_active, TOC, refresh
+
+__all__ = ["Env", "MemoryWorkspace", "EZFieldMap", "_SpatialRelations",
+           "MemoryLayer"]
 
 '''
 Supports nested selections:
@@ -20,34 +24,6 @@ All tests pass in and outside of arcmap
 '''
 
 arcpy.env.overwriteOutput = True
-
-nhoods_path = r'Database Connections\gisrep.sde\gisrep.SDE.AdministrativeArea\gisrep.SDE.NH_Council_Boundaries'
-mains_path = r'Database Connections\gisrep.sde\gisrep.SDE.SanitarySewer\gisrep.SDE.ssGravityMain'
-parcel_path = r'Database Connections\gisrep.sde\gisrep.SDE.Parcels\gisrep.SDE.Parcels'
-owner_path = r'Database Connections\County4.sde\County4.dbo.View_OwnerAddress'
-forest_path = r'Database Connections\County4.sde\County4.dbo.AgForest'
-
-
-# TODO: rm
-def tbl2df(tbl, fields=["*"]):
-    """Loads a table or featureclass into a pandas dataframe.
-    Args:
-        tbl (str): table or featureclass path or name (in Arc Python Window)
-        fields (list): names of fields to load; value of '*' loads all fields
-    """
-    # List holds each row as a transposed dataframe
-    frames = []
-    if fields == ["*"] or fields == "*":
-        fields = [f.name for f in arcpy.Describe(tbl).fields]
-    with arcpy.da.SearchCursor(tbl, fields) as cur:
-        for row in cur:
-            row_df = pd.DataFrame(list(row)).T
-            row_df.columns = cur.fields
-            frames.append(row_df)
-    # Make a single dataframe from the list
-    df = pd.concat(frames)
-    df.reset_index(inplace=True, drop=True)
-    return df
 
 
 class Env(object):
@@ -307,7 +283,7 @@ class EZFieldMap(object):
         # Create data as temp
         tmp_name = self.parent.name + "_fmap"
         arcpy.FeatureClassToFeatureClass_conversion(
-            self.parent.lyr, "in_memory", tmp_name,
+            self.parent._lyr, "in_memory", tmp_name,
             field_mapping=self.as_str)
         # Overwrite old data with temp data
         arcpy.FeatureClassToFeatureClass_conversion(
@@ -320,10 +296,19 @@ class EZFieldMap(object):
         self.__init__(self.parent)
         return
 
+    def export(self, out_name, out_loc="in_memory"):
+        """Exports the current feature class using the Field Mapping."""
+        arcpy.FeatureClassToFeatureClass_conversion(
+            self.parent._lyr, out_loc, out_name,
+            field_mapping=self.as_str)
+        return
+
     def __str__(self):
         return self._str
 
 
+# TODO: these selections only work on the <obj>.lyr object not what's visible in ArcMap
+# Link with TOC objects
 class _SpatialRelations(object):
     __doc__ = """
         INTERSECT - The features in the join features will be matched if they intersect a target feature. This is the default. Specify a distance in the search_radius parameter.
@@ -362,9 +347,9 @@ class _SpatialRelations(object):
     def _select_by_loc(self, sel_type):
         def select(select_features, search_distance=""):
             arcpy.SelectLayerByLocation_management(
-                self.parent.lyr, sel_type,
-                select_features.lyr, search_distance)
-            return self.parent.lyr  # TODO: untested
+                self.parent._lyr, sel_type,
+                select_features._lyr, search_distance)
+            return self.parent._lyr  # TODO: untested
         return select
 
     def _set_attrs(self):
@@ -377,22 +362,22 @@ class _SpatialRelations(object):
 
     def where(self, qry):
         sel_method = "NEW_SELECTION"
-        if self.parent.lyr.getSelectionSet():
+        if self.parent._lyr.getSelectionSet():
             sel_method = "SUBSET_SELECTION"
         arcpy.SelectLayerByAttribute_management(
-            self.parent.lyr, sel_method, qry)
-        return self.parent.lyr
+            self.parent.name, sel_method, qry)  # parent._lyr
+        return self.parent._lyr
 
     def deselect(self):
         arcpy.SelectLayerByAttribute_management(
-            self.parent.lyr, "CLEAR_SELECTION")
+            self.parent._lyr, "CLEAR_SELECTION")
         return
 
     @property
     def count(self):
         """Returns the number of selected features."""
         try:
-            return len(self.parent.lyr.getSelectionSet())
+            return len(self.parent._lyr.getSelectionSet())
         except TypeError:
             return 0
 
@@ -405,7 +390,11 @@ class MemoryLayer(object):
         if os.path.dirname(self.source) != "in_memory":
             raise IOError("Data is not in memory.")
         self.name = desc.name
-        self.lyr = arcpy._mapping.Layer(data)
+        # Set the layer property to that in ArcMap's TOC if open
+        if is_active():
+            self._lyr = TOC[self.name]
+        else:
+            self._lyr = arcpy._mapping.Layer(data)
         self.fmap = EZFieldMap(self)
         self.selection = _SpatialRelations(self)
         self._joins = {}
@@ -457,40 +446,86 @@ class MemoryLayer(object):
         self._joins = j
         return
 
+    def add_field(self, f_name, f_type, f_len, code_blk="", calc="", alias=""):
+        """Add and calc a new field. Using Python of course!
+        Args:
+            f_name (str): name of new field
+            f_type (str): field type
+            f_len (int): length of field
+            code_blk (str): Python script to execute as pre-logic
+            calc (str): the calculation code to populate the field
+            alias (str): field alias
+        """
+        if not alias:
+            alias = f_name
+        f_name = f_name.replace(" ", "_")
+        try:
+            arcpy.AddField_management(
+                self.name, f_name, f_type, "", "", f_len, alias)
+            arcpy.CalculateField_management(
+                self.name, f_name, calc, "PYTHON", code_blk)
+        except Exception as e:
+            # If an error with the calculation occurs, delete the created field
+            if f_name in self.fields:
+                arcpy.DeleteField_management(self.name, f_name)
+            raise e
+        return
+
     @property
     def joins(self):
         return self._joins
 
+    @property
+    def defquery(self):
+        """Returns the layer's definition query."""
+        return self._lyr.definitionQuery
+
+    def set_defquery(self, qry=""):
+        """Sets the layer's definition query."""
+        self._lyr.definitionQuery = qry
+        if is_active():
+            refresh()
+        return
+
 
 # TODO: better tests
 '''
+nhoods_path = r'Database Connections\gisrep.sde\gisrep.SDE.AdministrativeArea\gisrep.SDE.NH_Council_Boundaries'
+mains_path = r'Database Connections\gisrep.sde\gisrep.SDE.SanitarySewer\gisrep.SDE.ssGravityMain'
+parcel_path = r'Database Connections\gisrep.sde\gisrep.SDE.Parcels\gisrep.SDE.Parcels'
+owner_path = r'Database Connections\County4.sde\County4.dbo.View_OwnerAddress'
+forest_path = r'Database Connections\County4.sde\County4.dbo.AgForest'
+prop_path = r'Database Connections\County4.sde\County4.dbo.Property'
+
 # Load data into memory
-mem = MemoryWorkspace()
-mem.add_layer(mains_path)
-mem.add_layer(nhoods_path)
+mem = archacks.MemoryWorkspace()
+#mem.add_layer(mains_path)
+#mem.add_layer(nhoods_path)
 mem.add_layer(parcel_path)
 mem.add_table(owner_path)
-mem.add_table(forest_path)
-assert len(mem.contents) == 5
+mem.add_table(prop_path)
+#mem.add_table(forest_path)
+#assert len(mem.contents) == 5
 
-mains = mem.get_memorylayer("mem_ssGravityMain")
-nhoods = mem.get_memorylayer("mem_NH_Council_Boundaries")
+#mains = mem.get_memorylayer("mem_ssGravityMain")
+#nhoods = mem.get_memorylayer("mem_NH_Council_Boundaries")
 parcels = mem.get_memorylayer("mem_Parcels")
 
 # Test field map edits
-mains.fmap.reorder([0, 2, 5], True)
-mains.fmap.update()
-assert len(mains.fields) == 5
+#mains.fmap.reorder([0, 2, 5], True)
+#mains.fmap.update()
+#assert len(mains.fields) == 5
 
 # Reduce parcels to intersection with nhoods & join with owners
-parcels.selection.Intersect(nhoods)
-parcels.fmap.update()
-assert parcels.feature_count == 25237
+#parcels.selection.Intersect(nhoods)
+#parcels.fmap.update()
+#assert parcels.feature_count == 25237
 
 parcels.join('mem_View_OwnerAddress', "ParcelID", "StateGeo")
-assert "City" in parcels.fields
-parcels.join('mem_AgForest', "PropertyID", "PropertyID")
-assert "ProdCommodity" in parcels.fields
-parcels.drop_join('mem_View_OwnerAddress')
-assert "City" not in parcels.fields
+parcels.join("mem_Property", "PropertyID", "PropertyID")
+#assert "City" in parcels.fields
+#parcels.join('mem_AgForest', "PropertyID", "PropertyID")
+#assert "ProdCommodity" in parcels.fields
+#parcels.drop_join('mem_View_OwnerAddress')
+#assert "City" not in parcels.fields
 '''
