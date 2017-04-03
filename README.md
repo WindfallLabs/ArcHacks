@@ -37,13 +37,13 @@ easy by wrapping the nonsensical FieldMap and FieldMapping objects (which are
 really just strings). Let's take our joined parcels-owner data from above and
 limit the fields to only those we want in our output data:  
 
-    # Get the field mapping (current schema)  
+    # Get the field mapping/schema  
     schema = archacks.EZFieldMap(parcels)  
     # Set the new order of fields by index; by name is planned
     new_order = [0, 14, 15, 16, 17, 18, 20, 21, 22, 23]  
     schema.reorder(new_order, drop=True)  
     # Export the data using the new schema
-    schema.export(parcel_owners)  
+    schema.export("parcel_owners.shp", "C:/workspace")  
     
 Re-mapping the fields by name is planned, but not yet available. Get the current
 order of the fields using the `.current_order` property. The export method supports

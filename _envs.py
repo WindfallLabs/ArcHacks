@@ -368,7 +368,14 @@ class _SpatialRelations(object):
             self.parent.name, sel_method, qry)  # parent._lyr
         return self.parent._lyr
 
-    def deselect(self):
+    def switch(self):
+        """Switches/inverts the current selection."""
+        arcpy.SelectLayerByAttribute_management(
+            self.parent.name, "SWITCH_SELECTION")
+        return self.parent._lyr
+
+    def clear(self):
+        """Clears/deselects the current selection."""
         arcpy.SelectLayerByAttribute_management(
             self.parent._lyr, "CLEAR_SELECTION")
         return
@@ -434,6 +441,7 @@ class MemoryLayer(object):
         current_joins.update({tbl_name: tbl_fields})
         self._joins = current_joins
         return
+        # TODO: spatial join with specified field to keep rather than all
 
     def drop_join(self, tbl):
         """Drops a joined table's attributes from the current data."""
@@ -446,7 +454,7 @@ class MemoryLayer(object):
         self._joins = j
         return
 
-    def add_field(self, f_name, f_type, f_len, code_blk="", calc="", alias=""):
+    def add_field(self, f_name, f_type, f_len=10, code_blk="", calc="", alias=""):
         """Add and calc a new field. Using Python of course!
         Args:
             f_name (str): name of new field
@@ -459,11 +467,14 @@ class MemoryLayer(object):
         if not alias:
             alias = f_name
         f_name = f_name.replace(" ", "_")
+        if f_type.upper() in ["FLOAT", "DOUBLE"]:
+            f_len = 0
         try:
             arcpy.AddField_management(
                 self.name, f_name, f_type, "", "", f_len, alias)
-            arcpy.CalculateField_management(
-                self.name, f_name, calc, "PYTHON", code_blk)
+            if calc:
+                arcpy.CalculateField_management(
+                    self.name, f_name, calc, "PYTHON", code_blk)
         except Exception as e:
             # If an error with the calculation occurs, delete the created field
             if f_name in self.fields:
@@ -486,6 +497,15 @@ class MemoryLayer(object):
         if is_active():
             refresh()
         return
+
+'''
+def calc_field(fc, field, func, func_attrs):
+    with arcpy.da.UpdateCursor(fc, field) as cur:
+        for row in cur:
+            row[0] = func(func_attrs)
+            cur.updateRow(row)
+    return
+'''
 
 
 # TODO: better tests

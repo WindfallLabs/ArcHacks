@@ -10,6 +10,7 @@ import re
 import sys
 from subprocess import Popen, PIPE
 from xml.dom import minidom as DOM
+from ConfigParser import RawConfigParser
 
 import pandas as pd
 import ogr
@@ -66,6 +67,13 @@ class TableOfContents(object):
             d = {lyr.name: int(arcpy.GetCount_management(lyr).getOutput(0))}
             sel.update(d)
         return sel
+
+    def add_fc(self, fc_path, df_idx=0, loc="TOP"):
+        """Wraps the rediculous process of adding data to an mxd"""
+        new_lyr = arcpy.mapping.Layer(fc_path)
+        arcpy.mapping.AddLayer(self.dataframes[df_idx], new_lyr, loc)
+        return
+
 
     def remove(self, layer_name):
         """Removes layer from TOC by name."""
@@ -445,6 +453,83 @@ def fc2fc(in_fc, full_out_path, where=None, limit_fields=None):
     #    mapping = limit_fields(in_fc, limit_fields)
     return arcpy.FeatureClassToFeatureClass_conversion(
         in_fc, out_path, out_name, where, mapping)
+
+
+class GDBPkg(object):
+    def __init__(self, out_location, gdb_name):
+        """Create a template for a file geodatabase and make all at once."""
+        self.out_location = out_location
+        self.name = gdb_name
+        if not gdb_name.endswith(".gdb"):
+            self.name = gdb_name + ".gdb"
+        self.contents = []
+        self.datasets = []
+
+        # Validate
+        if not os.path.exists(self.out_location):
+            raise IOError("Out location does not exist")
+        if self.exists:
+            raise IOError("GDB already exists")
+
+    @property
+    def path(self):
+        """Output path for staged GDB."""
+        return os.path.join(self.out_location, self.name)
+
+    @property
+    def exists(self):
+        if os.path.exists(self.path):
+            return True
+        return False
+
+    def add_feature(self, out_name, feature_path, dataset=""):
+        """Stages a feature class for import."""
+        self.contents.append([out_name, feature_path, dataset])
+        return
+
+    def add_dataset(self, name, refsys=0):
+        """Stages a feature dataset for creation."""
+        self.datasets.append([name, refsys])
+        return
+
+    def make(self):
+        """Create the staged GDB."""
+        # Create GDB
+        arcpy.CreateFileGDB_management(self.out_location, self.name)
+
+        # Create Feature Datasets
+        for ds_name, refsys in self.datasets:
+            arcpy.CreateFeatureDataset_management(self.path, ds_name, refsys)
+
+        # Import Feature Classes
+        for fc_name, f_path, dataset in self.contents:
+            if dataset:
+                if dataset not in [ds[0] for ds in self.datasets]:
+                    raise IOError("{} not a dataset".format(dataset))
+                arcpy.FeatureClassToFeatureClass_conversion(
+                    f_path, os.path.join(self.path, dataset), fc_name)
+            else:
+                arcpy.FeatureClassToFeatureClass_conversion(
+                    f_path, self.path, fc_name)
+        return
+
+
+class QueryFile(object):
+    """Wraps RawConfigParser to make accessing stored queries easy."""
+    def __init__(self, path):
+        self.path = path
+        self._cfg = RawConfigParser()
+        self._cfg.read(self.path)
+
+    def get(self, section, option):
+        """Gets the option from the section in the file."""
+        if option.lower() == "all":
+            all_qs = ["({})".format(self._cfg.get(section, opt))
+                      for opt in self._cfg.options(section)]
+            q = " OR ".join(all_qs)
+        else:
+            q = self._cfg.get(section, option)
+        return q.replace("\n", " ")
 
 
 # Source:
