@@ -3,8 +3,8 @@
 Misc ArcPy Addons
 Author: Garin Wally
 License: MIT
-
 """
+
 import os
 import re
 import sys
@@ -61,7 +61,7 @@ class TableOfContents(object):
         return cont
 
     @property
-    def features_selected(self): # TODO: assert actually selected not total
+    def features_selected(self):  # TODO: assert actually selected not total
         sel = {}
         for lyr in self.contents.values():
             d = {lyr.name: int(arcpy.GetCount_management(lyr).getOutput(0))}
@@ -73,7 +73,6 @@ class TableOfContents(object):
         new_lyr = arcpy.mapping.Layer(fc_path)
         arcpy.mapping.AddLayer(self.dataframes[df_idx], new_lyr, loc)
         return
-
 
     def remove(self, layer_name):
         """Removes layer from TOC by name."""
@@ -99,6 +98,7 @@ else:
 
 def get_locks(gdb):
     """Generates a list of current locks in a gdb."""
+    # TODO: change to `glob(os.path.join(gdb, "*.lock"))`
     locks = [f for f in os.listdir(gdb) if ".lock" in f]
     for lock in locks:
         try:
@@ -112,6 +112,7 @@ def get_lock_users(gdb):
     """Lists the users holding locks on a gdb."""
     locks = [f.split(".")[1] for f in get_locks(gdb)]
     return list(set(locks))
+
 
 # =============================================================================
 # STRING FORMATTERS
@@ -438,6 +439,7 @@ def get_field_type(fc, field):
 
 # TODO: 'spatial join' that copies a field from the selected to the
 #  intersecting features
+
 
 # =============================================================================
 # WRAPPERS

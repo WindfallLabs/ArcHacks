@@ -7,101 +7,55 @@ Author:        Garin Wally
 Description:   Python tools to assist Development Services at the City of
                Missoula, MT.
 
-NOTE: I have doubts this will even work. ESRI instansiates objects at runtime
-meaning that any instance of Tool will probably get ignored. Any subclass of
-Tool would need to be written as a class, likely with no benefit from the Tool
-subclassing shortcut...
-I think that subclassing and not instansitating a tool will work though.
-"""
+Working!
+* Supports ugly subclassing of base Tool class
+* Supports importing of tools: `from mytools import DoStuff` and add that to
+your toolbox
+* Started making wrappers for arcpy.Parameter
 
-import os
-import re
-import types
+"""
 
 import pandas as pd
 
-#HOME = r"\\cityfiles\DEVServices\ArcExplorer"
-#arcpy_path = r"C:\Program Files (x86)\ArcGIS\Desktop10.3\arcpy"
-
-#os.chdir(arcpy_path)
 import arcpy
 
-#os.chdir(HOME)
 
-
+'''
 def get_layers():
     mxd = arcpy.mapping.MapDocument("CURRENT")
     df = arcpy.mapping.ListDataFrames(mxd)[0]
     for f in arcpy.mapping.ListLayers(df):
         yield f.name
+'''
 
+# =============================================================================
+# GLOBALS
 
 REQUIRED = "Required"
 OPTIONAL = "Optional"
 DERRIVED = "Derrived"
 
+INPUT = "Input"
 
-class Toolbox(object):
-    """ArcGIS Toolbox object."""
-    def __init__(self):
-        self.label = self.name_tool()
-        self.alias = ""
-        self.helpContext = 50
-        self.tools = []
 
-    '''
-    @classmethod
-    def add_tool(self, tool):
-        #if issubclass(tool, Tool) or type(tool) is object:
-        self.tools.append(tool)
-        #elif type(tool) is str:
-        #    self.tools.append(globals()[tool])
-        #else:
-        #    raise TypeError("Must be object or string")
+# =============================================================================
+# BASE TOOL CLASS
 
-    @classmethod
-    def add_tools(self, tools):
-        for tool in tools:
-            self.add_tool(tool)
-    '''
-
+#TODO: set main
 class Tool(object):
-    """Base 'Tool' Object."""
+    """Base Tool Class."""
     def __init__(self):
-        #self.label = ""
-        self.description = ""
-        #self.params = params
+        self.label = "LABEL"
+        self.description = "DESC"
         self.is_licensed = True
         self.validate = False
-        self.name_tool()
+        self.main = None
+        self.params = []
 
-    @classmethod
-    def name_tool(self):
-        """Set default label to class name with spaces."""
-        label = " ".join(re.sub(r"([A-Z])", r" \1", self.__name__).split())
-        setattr(self, "label", label)
-
-    '''
-    @classmethod
-    def add_input(self, display_name, var_name, datatype, req=REQUIRED):
-        if not hasattr(self, "params"):
-            setattr(self, "params", [])
-        self.params.append(
-            arcpy.Parameter(
-                displayName=display_name,
-                name=var_name,
-                datatype=datatype,
-                parameterType=req,
-                direction="Input"))
-    '''
-    @classmethod
-    def set_params(self, params):
-        self.params = params
-
-    @classmethod
-    def set_main(self, main_func):
-        """Set the method called during execution."""
-        self.main = types.MethodType(main_func, self)
+    def subclass(new_tool_self):
+        """Initializes a subclass of the base Tool class."""
+        # NOTE: look, we know about super and such, but I argue this for ease
+        Tool.__init__(new_tool_self)
 
     def getParameterInfo(self):
         return self.params
@@ -122,11 +76,91 @@ class Tool(object):
             pass
 
     def execute(self, parameters, messages):
-        arcpy.AddMessage("Param: {}".format([p.valueAsText for p in parameters]))
+        # Add messages for each parameter
+        [arcpy.AddMessage("Param: {}".format(p.valueAsText))
+         for p in parameters]
+        # Execute
         self.main(parameters)
         return
 
 
+# =============================================================================
+# INPUTS -- wrappers for arcpy.Parameter()
+# These sort of behave like classes hence the TitleCase
+# TODO: move to arcpy.tools.inputs ?
+
+def String(label, name, required=True):
+    """String Tool Parameter."""
+    if required:
+        required = REQUIRED
+    else:
+        required = OPTIONAL
+    param = arcpy.Parameter(
+        displayName=label,
+        name=name,
+        datatype="GPString",
+        parameterType="Required",
+        direction=INPUT)
+    return param
+
+
+def Double(label, name, required=True):
+    """Double (number) Tool Parameter."""
+    if required:
+        required = REQUIRED
+    else:
+        required = OPTIONAL
+    param = arcpy.Parameter(
+        displayName=label,
+        name=name,
+        datatype="GPDouble",
+        parameterType="Required",
+        direction=INPUT)
+    return param
+
+
+def ValueList(label, name, columns, values, required=True):
+    """ValueTable Tool Parameter."""
+    if required:
+        required = REQUIRED
+    else:
+        required = OPTIONAL
+    param = arcpy.Parameter(
+        displayName=label,
+        name=name,
+        datatype="GPValueTable",
+        parameterType=required,
+        direction=INPUT)
+    param.columns = columns
+    param.filters[0].type = "ValueList"
+    param.values = []
+    param.filters[0].list = values
+    return param
+
+
+# =============================================================================
+# EXAMPLES
+
+# Layout of a (non-functional) tool using archacks
+'''
+class TestTool(archacks.Tool):
+    def __init__(self):
+        archacks.Tool.subclass(self)
+        self.label = "TestTool"
+        self.params = [
+            # Param0 -- buffer distance
+            archacks.Double("Buffer Distance (ft)", "distance"),
+
+            # Param1 -- List of Fields
+            archacks.ValueList(
+                "Label!", "vtable",
+                [['GPString', 'Names'], ['GPString', 'Rename (optional)']],
+                ["V1", "V2", "V3"])
+            ]
+'''
+
+# Layout of "fully" coded, functional tool
+'''
 class ExportNeighborsToExcel(object):
     """
     Selects the neighboring parcels to a selected parcel by distance.
@@ -174,15 +208,6 @@ class ExportNeighborsToExcel(object):
                                  datatype="GPString",
                                  parameterType="Required",
                                  direction="Input")
-
-        ''' # Slow as *** or crashes
-        # Output Excel File
-        param3 = arcpy.Parameter(displayName="Output Path",
-                                 name="out_path",
-                                 datatype="DEFolder",
-                                 parameterType="Required",
-                                 direction="Input")  # Freaks out if 'output'
-        '''
 
         # Return
         params = [param0, param1, param2]
@@ -263,3 +288,4 @@ class ExportNeighborsToExcel(object):
 
         #debug.close()
         return
+'''

@@ -110,9 +110,14 @@ class MemoryWorkspace(Env):
         if rename:
             out_name = prefix.format(rename)
         else:
+            # Get feature's name via Describe
             name = arcpy.Describe(fc).name
-            if len(re.findall("\.", name)) > 1:
+            # Support SDE paths
+            if len(re.findall("\.", name)) > 1 and not name.endswith(".shp"):
                 name = name.split(".")[-1]
+            # Support shp files
+            elif name.endswith(".shp"):
+                name = name.split(".")[0]
             out_name = prefix.format(name)
         arcpy.FeatureClassToFeatureClass_conversion(
             fc, self.path, out_name)
@@ -365,7 +370,7 @@ class _SpatialRelations(object):
         if self.parent._lyr.getSelectionSet():
             sel_method = "SUBSET_SELECTION"
         arcpy.SelectLayerByAttribute_management(
-            self.parent.name, sel_method, qry)  # parent._lyr
+            self.parent._lyr, sel_method, qry)  # Changed from .name
         return self.parent._lyr
 
     def switch(self):
@@ -475,12 +480,12 @@ class MemoryLayer(object):
             if calc:
                 arcpy.CalculateField_management(
                     self.name, f_name, calc, "PYTHON", code_blk)
+                return
         except Exception as e:
             # If an error with the calculation occurs, delete the created field
             if f_name in self.fields:
                 arcpy.DeleteField_management(self.name, f_name)
             raise e
-        return
 
     @property
     def joins(self):
