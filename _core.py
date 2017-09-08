@@ -8,6 +8,8 @@ License: MIT
 import os
 import re
 import sys
+#from time import sleep
+from queue import Queue
 from subprocess import Popen, PIPE
 from xml.dom import minidom as DOM
 from ConfigParser import RawConfigParser
@@ -29,6 +31,83 @@ def is_active(exe="arcmap"):
     if re.findall(regex, sys.executable.replace("\\", "/")):
         return True
     return False
+
+
+class GDB(object):
+    def __init__(self, gdb_path, srid=0, datasets=[], default_queue_ds=""):
+        """Geodatabase Object.
+        Args:
+            gdb_path (str): path to new/existing Geodatabase
+            srid (int): Spatial Reference ID to use for datasets only
+            datasets (list): dataset names to create using SRID
+            default_queue_ds (str): dataset name to use as default for queue
+        """
+        self.path = gdb_path
+        if not self.path.endswith(".gdb"):
+            raise AttributeError("Not a Geodatabase")
+        self.parent_folder = os.path.dirname(self.path)
+        self.name = os.path.basename(self.path)
+        self.srid = srid
+        self.sr = arcpy.SpatialReference(self.srid)
+        self.datasets = datasets
+        self.default_queue_ds = default_queue_ds
+        self.data_queue = Queue()
+
+    def build(self):
+        """Builds gdb, creates datasets, adds queued data."""
+        if not os.path.exists(self.path):
+            arcpy.CreateFileGDB_management(self.parent_folder, self.name)
+        arcpy.RefreshCatalog(self.path)
+        arcpy.env.workspace = self.path
+        for ds in self.datasets:
+            arcpy.CreateFeatureDataset_management(self.path, ds, self.srid)
+            arcpy.RefreshCatalog(os.path.join(self.path, ds))
+        if self.data_queue:
+            self.load_queued_data()
+        return
+
+    def add(self, in_data_path, data_name="", dataset=""):
+        """Adds input featureclass to geodatabase.
+        Args:
+            in_data_path (str): path to input data
+            data_name (str): optionally rename entered data
+            dataset (str): dataset to send imported data
+        """
+        if not data_name:
+            data_name = os.path.basename(in_data_path)
+        if "sde" in data_name.lower():
+            data_name = data_name.split(".")[-1]
+        elif "." in data_name:
+            data_name = data_name.split(".")[0]
+        out = os.path.join(self.path, dataset).strip("\\").strip("/")
+        arcpy.FeatureClassToFeatureClass_conversion(
+            in_data_path, out, data_name)
+        # Easily access data paths by fc name
+        setattr(self, data_name.lower(),
+                os.path.join(self.path, dataset, data_name))
+        return
+
+    def add_many(self, data_mapping={}, data_list=[], dataset=""):
+        """Adds a list or dict of input feature classes.
+        Args:
+            data_mapping (dict): dictionary of {data_name: data_path}
+            data_list (list): list of data paths to import
+            dataset (str): destination dataset for imported data
+        """
+        if data_mapping:
+            for k, v in data_mapping.items():
+                self.add(v, k)
+        if data_list:
+            for fc_path in data_list:
+                self.add(fc_path, dataset=dataset)
+        return
+
+    def load_queued_data(self):
+        """Alias of 'add_many' for importing all data in the data_queue."""
+        # Remove path from queue
+        while self.data_queue.qsize() > 0:
+            self.add(self.data_queue.get(), "", dataset=self.default_queue_ds)
+        return
 
 
 class TableOfContents(object):
