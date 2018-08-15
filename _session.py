@@ -14,7 +14,7 @@ import re
 import arcpy
 import pythonaddins
 
-from _core import fc2fc, TOC, is_active
+from _core import fc2fc, TOC, is_active, MXD
 
 
 # =============================================================================

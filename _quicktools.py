@@ -15,6 +15,10 @@ your toolbox
 
 """
 
+import re
+import sys
+from string import ascii_uppercase
+
 import pandas as pd
 
 import arcpy
@@ -31,11 +35,53 @@ def get_layers():
 # =============================================================================
 # GLOBALS
 
-REQUIRED = "Required"
-OPTIONAL = "Optional"
+#REQUIRED = "Required"
+#OPTIONAL = "Optional"
 DERRIVED = "Derrived"
 
+REQUIRED = {True: "required", False: "Optional"}
+
 INPUT = "Input"
+
+
+tool_template = """
+class ToolTemplate(archacks.Tool):
+    def __init__(self):
+        self.make()
+        self.params = [
+            archacks.String("user", "Contact Name", True, user),
+            archacks.String("board", "Board Acronym", False)]
+
+    def main(self):
+        pass
+    """
+
+
+class _Toolbox(object):
+    """Basic Toolbox Object."""
+    label = ""
+    alias = ""
+    #name = ""
+
+    @property
+    def tools(cls):
+        """Dynamic list of tools in Python Toolbox script (.pyt)."""
+        return sys.modules["archacks"].Tool.__subclasses__()
+
+
+def make_toolbox(name):
+    """Creates local copy of Toolbox object. Output must be 'Toolbox'.
+    Args:
+        name (str): name of toolbox (doesn't display in catalog)
+    Use:
+        Toolbox = archacks.make_toolbox('My Tools')
+    """
+    # Don't instantiate
+    toolbox = _Toolbox
+    # Set parameters of class, not instance
+    toolbox.label = name
+    toolbox.alias = name
+    return toolbox
 
 
 # =============================================================================
@@ -45,17 +91,26 @@ INPUT = "Input"
 class Tool(object):
     """Base Tool Class."""
     def __init__(self):
-        self.label = "LABEL"
         self.description = "DESC"
         self.is_licensed = True
         self.validate = False
-        self.main = None
         self.params = []
 
-    def subclass(new_tool_self):
+    def make(new_tool_self):
         """Initializes a subclass of the base Tool class."""
-        # NOTE: look, we know about super and such, but I argue this for ease
+        # NOTE: must be executed in subclass's __init__
         Tool.__init__(new_tool_self)
+        return
+
+    @property
+    def label(self):
+        """Tool label (adds spaces to class name)."""
+        name = re.sub("\W", "", str(type(self)).split(".")[1])
+        for letter in name:
+            if letter in ascii_uppercase:
+                name = name.replace(letter, " {}".format(letter))
+        name = re.sub(" {2,}", " ", name)
+        return name.strip()
 
     def getParameterInfo(self):
         return self.params
@@ -80,6 +135,8 @@ class Tool(object):
         [arcpy.AddMessage("Param: {}".format(p.valueAsText))
          for p in parameters]
         # Execute
+        if not hasattr(self, "main") or self.main is None:
+            raise AttributeError("Tool does not have 'main' method.")
         self.main(parameters)
         return
 
@@ -89,54 +146,100 @@ class Tool(object):
 # These sort of behave like classes hence the TitleCase
 # TODO: move to arcpy.tools.inputs ?
 
-def String(label, name, required=True):
+from types import MethodType
+
+class _Params(object):
+    def __init__(self):
+        pass
+
+    def _make_param(self, label, required=True):
+        """Tool Parameter."""
+        REQUIRED = {True: "required", False: "Optional"}
+        param = arcpy.Parameter(
+            displayName=label,
+            # Name is derrived from label: lowercase and change spaces to '_'
+            name=re.sub("\W", "", label.lower().replace(" ", "_")),
+            datatype="GPString",
+            parameterType=REQUIRED[required],
+            direction="Input")
+        setattr(param, "is_required", required)
+        return param
+
+    def string(self, label, required=True, default_value=None):
+        param = self._make_param(label, required)
+        # Note: ESRI coded their own value validation
+        param.value = default_value
+        return param
+
+    def double(self, label, required=True, default_value=None):
+        param = self._make_param(label, required)
+        param.datatype = "GPDouble"
+        try:
+            param.value = default_value
+        except ValueError:
+            pass
+        return param
+
+    def valuelist(self, label, name, columns, values, required=True):
+        """ValueTable Tool Parameter."""
+        param = self._make_param(label, required)
+        param.datatype = "GPValueTable"
+        param.columns = columns
+        param.filters[0].type = "ValueList"
+        param.values = []
+        param.filters[0].list = values
+        return param
+
+
+params = _Params()
+
+assert params.string("My String", True, "Garin").value == "Garin"
+assert params.string("My String", True, None).value is None
+assert params.string("My String", True, 100).value == "100"
+assert params.string("My String", True, None).is_required is True
+assert params.double("My Dub", False, 0).is_required is False
+assert params.double("My Dub", False, 0).value == 0.0
+
+'''
+def String(label, required=True, default_value=""):
     """String Tool Parameter."""
-    if required:
-        required = REQUIRED
-    else:
-        required = OPTIONAL
     param = arcpy.Parameter(
         displayName=label,
-        name=name,
+        # Name is derrived from label: lowercase and change spaces to '_'
+        name=label.lower().replace(" ", "_"),
         datatype="GPString",
-        parameterType="Required",
+        parameterType=REQUIRED[required],
         direction=INPUT)
+    if default_value:
+        param.value = default_value
     return param
 
 
 def Double(label, name, required=True):
     """Double (number) Tool Parameter."""
-    if required:
-        required = REQUIRED
-    else:
-        required = OPTIONAL
     param = arcpy.Parameter(
         displayName=label,
-        name=name,
+        name=label.lower().replace(" ", "_"),
         datatype="GPDouble",
-        parameterType="Required",
+        parameterType=REQUIRED[required],
         direction=INPUT)
     return param
 
 
 def ValueList(label, name, columns, values, required=True):
     """ValueTable Tool Parameter."""
-    if required:
-        required = REQUIRED
-    else:
-        required = OPTIONAL
     param = arcpy.Parameter(
         displayName=label,
-        name=name,
+        name=label.lower().replace(" ", "_"),
         datatype="GPValueTable",
-        parameterType=required,
+        parameterType=REQUIRED[required],
         direction=INPUT)
     param.columns = columns
     param.filters[0].type = "ValueList"
     param.values = []
     param.filters[0].list = values
     return param
-
+'''
 
 # =============================================================================
 # EXAMPLES
@@ -145,7 +248,7 @@ def ValueList(label, name, columns, values, required=True):
 '''
 class TestTool(archacks.Tool):
     def __init__(self):
-        archacks.Tool.subclass(self)
+        self.make()
         self.label = "TestTool"
         self.params = [
             # Param0 -- buffer distance

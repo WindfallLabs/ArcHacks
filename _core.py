@@ -11,13 +11,20 @@ import sys
 #from time import sleep
 from queue import Queue
 from subprocess import Popen, PIPE
+from collections import OrderedDict
 from xml.dom import minidom as DOM
 from ConfigParser import RawConfigParser
 
 import pandas as pd
+import numpy as np
 import ogr
 
 import arcpy
+
+#from archacks import DIR
+
+DIR = os.path.abspath(os.path.dirname(__file__))
+NEW_GROUP_LAYER = os.path.join(DIR, "NewGroupLayer.lyr")
 
 
 type_map = {
@@ -26,11 +33,19 @@ type_map = {
     "str": ["Text", "String"]}
 
 
+# TODO: not the best...
 def is_active(exe="arcmap"):
     regex = "(?i){}.exe".format(exe)
     if re.findall(regex, sys.executable.replace("\\", "/")):
         return True
     return False
+
+
+# MapDocument() cannot be called from within classes and must be global
+if is_active():
+    MXD = arcpy.mapping.MapDocument("CURRENT")
+else:
+    MXD = None
 
 
 class GDB(object):
@@ -108,6 +123,164 @@ class GDB(object):
         while self.data_queue.qsize() > 0:
             self.add(self.data_queue.get(), "", dataset=self.default_queue_ds)
         return
+
+    # Debilitatingly slow
+    '''
+    def add_table(self, table_path, table_name="", where=""):
+        if not table_name:
+            table_name = os.path.basename(table_path)
+        if "sde" in table_name.lower():
+            table_name = table_name.split(".")[-1]
+        elif "." in table_name:
+            table_name = table_name.split(".")[0]
+        arcpy.TableToGeodatabase_conversion(table_path, self.path)#, table_name)
+        return
+    '''
+
+def df2tbl(df, out_path):
+    # Convert dataframe to array
+    a = np.array(np.rec.fromrecords(df.values))
+    # Add field names to array
+    a.dtype.names = tuple(df.columns.tolist())
+    # Sort of surprised ESRI thought of this
+    arcpy.da.NumPyArrayToTable(a, out_path)
+    # ...and of course we have to call this...
+    arcpy.RefreshCatalog(out_path)
+    return
+
+
+def domains2df(workspace):
+    """Converts all domains into a dict of dataframes."""
+    domain_obj = arcpy.da.ListDomains(workspace)
+    domdict = {
+        d.name: pd.DataFrame.from_dict(d.codedValues, orient="index").sort()
+        for d in domain_obj
+        }
+    for key in domdict:
+        domdict[key].reset_index(inplace=True)
+        domdict[key].columns = ["Key", "Value"]
+    return domdict
+
+
+def domain2tbl(workspace, domain, output):
+    domdict = domains2df(workspace)
+    df2tbl(domdict[domain], output)
+    return
+
+
+
+
+
+class DataFramesWrapper(object):
+    """Container for dataframes that is index-able by name and index."""
+    def __init__(self, mxd):
+        self.mxd = mxd
+
+    @property
+    def _dict(self):
+        return OrderedDict([(df.name, df) for df
+                            in arcpy.mapping.ListDataFrames(self.mxd)])
+
+    @property
+    def _list(self):
+        return self._dict.values()
+
+    def __getitem__(self, index):
+        if type(index) is int:
+            return self._list[index]
+        return self._dict[index]
+
+    def __iter__(self):
+        """All dataframe objects."""
+        return self._dict.itervalues()
+
+    def __str__(self):
+        return str(self._dict)
+
+    def __repr__(self):
+        return str(self._dict)
+
+
+class Map(object):
+    def __init__(self):
+        try:
+            self.mxd = MXD
+        except:  #
+            self.mxd = None
+
+    @property
+    def dataframes(self):
+        return DataFramesWrapper(MXD)
+
+    @property
+    def count_dataframes(self):
+        return len(self.dataframes._list)
+
+    @property
+    def df_layers(self):
+        return OrderedDict([(df.name, arcpy.mapping.ListLayers(df)) for df
+                            in self.dataframes])
+
+    @property
+    def layers(self):
+        all_lyrs = []
+        for lyr_list in self.df_layers.values():
+            all_lyrs.extend(lyr_list)
+        return {lyr.name: lyr for lyr in all_lyrs}
+
+    @property
+    def layer_names(self):
+        return self.layers.keys()
+
+    def as_object(self, layer_name):
+        """Returns the input layer name as an object.
+        Args:
+            layer_name (str): name of layer
+        Use:
+            city = m.as_object("City Limits")
+        """
+        return self.layers[layer_name]
+
+    def rename_layer(self, old_name, new_name, dataframe=0):
+        self.layers[old_name].name = new_name
+        self.refresh()
+        return
+
+    def refresh(self):
+        arcpy.RefreshTOC()
+        arcpy.RefreshActiveView()
+        return
+
+    def add_group_lyr(self, name, dataframe=0):
+        group_lyr = arcpy.mapping.Layer(NEW_GROUP_LAYER)
+        arcpy.mapping.AddLayer(self.dataframes[dataframe], group_lyr, "TOP")
+        self.rename_layer("New Group Layer", name)
+        self.refresh()
+        return
+
+    def toggle_on(self, layer_name="*"):
+        """Toggles the input or all ("*") layer's visibility to on."""
+        if layer_name != "*":
+            self.layers[layer_name].visible = True
+        else:
+            for lyr in self.layers.values():
+                lyr.visible = True
+        self.refresh()
+        return
+
+    def toggle_off(self, layer_name="*"):
+        """Toggles the input or all ("*") layer's visibility to off."""
+        if layer_name != "*":
+            self.layers[layer_name].visible = False
+        else:
+            for lyr in self.layers.values():
+                lyr.visible = False
+        self.refresh()
+        return
+
+
+
+
 
 
 class TableOfContents(object):

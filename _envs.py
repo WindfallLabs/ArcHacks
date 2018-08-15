@@ -14,7 +14,7 @@ import arcpy
 from archacks import tbl2df, is_active, TOC, refresh
 
 __all__ = ["Env", "MemoryWorkspace", "EZFieldMap", "_SpatialRelations",
-           "MemoryLayer"]
+           "MemoryLayer"]#, "LayerObject"]
 
 '''
 Supports nested selections:
@@ -89,6 +89,80 @@ class Env(object):
         for d in self.contents:
             if re.findall(data, d):
                 return os.path.join(self.path, d)
+
+
+# TODO: new
+class Workspaces(object):
+    def __init__(self, default_name="in_memory", default_path="in_memory"):
+        """Use:
+            ws = Workspaces()
+            ws.set("in_memory")"""
+        self.dict = {}
+        self._current = ""
+        if default_name and default_path:
+            self.add(default_name, default_path)
+            self.set(default_name)
+
+    def add(self, name, path):
+        self.dict.update({name: path})
+        return
+
+    def set(self, name):
+        if self.on_disk:
+            pass #os.chdir(self.dict[name])
+        arcpy.env.workspace = self.dict[name]
+        self._current = name
+        return
+
+    @property
+    def on_disk(self):
+        return #os.path.exists(self.path)
+
+    @property
+    def path(self):
+        return self.dict[self.current]
+
+    @property
+    def tables(self):
+        return arcpy.ListTables()
+
+    @property
+    def features(self):
+        return arcpy.ListFeatureClasses()
+
+    @property
+    def datasets(self):
+        for dataset, dirs, fcs in list(arcpy.da.Walk(self.path))[1:]:
+            ds = dataset.split(self.path.split("\\")[1])[1]
+            yield "{}{}".format(self.path, ds)
+
+    @property
+    def dataset_names(self):
+        for dataset in self.datasets:
+            ds = dataset.split(".")[-1]
+            yield ds
+
+    @property
+    def rasters(self):
+        return arcpy.ListRasters()
+
+    @property
+    def contents(self):
+        data = []
+        data.extend(self.tables)
+        data.extend(self.features)
+        data.extend(self.rasters)
+        return data
+
+    @property
+    def current(self):
+        return self._current
+
+    def __dict__(self):
+        return self.dict
+
+    def __getitem__(self, i):
+        return self.dict[i]
 
 
 class MemoryWorkspace(Env):
@@ -420,6 +494,10 @@ class MemoryLayer(object):
         return {f.name: f for f in arcpy.Describe(self.source).fields}
 
     @property
+    def field_names(self):
+        return self.fields.keys()
+
+    @property
     def attrs(self):  # Note: faster init time, slow when called
         return tbl2df(self.source)
 
@@ -429,6 +507,53 @@ class MemoryLayer(object):
         if self.selection.count == 0:
             return int(arcpy.GetCount_management(self.source).getOutput(0))
         return -1
+
+    # TODO: could be cleaner
+    def add_field(self, f_name, f_type, f_len=10, code_blk="", calc="", alias=""):
+        """Add and calc a new field. Using Python of course!
+        Args:
+            f_name (str): name of new field
+            f_type (str): field type
+            f_len (int): length of field
+            code_blk (str): Python script to execute as pre-logic
+            calc (str): the calculation code to populate the field
+            alias (str): field alias
+        """
+        if not alias:
+            alias = f_name
+        f_name = f_name.replace(" ", "_")
+        if f_type.upper() in ["FLOAT", "DOUBLE"]:
+            f_len = 0
+        try:
+            arcpy.AddField_management(
+                self.name, f_name, f_type, "", "", f_len, alias)
+            if calc:
+                arcpy.CalculateField_management(
+                    self.name, f_name, calc, "PYTHON", code_blk)
+                return
+        except Exception as e:
+            # If an error with the calculation occurs, delete the created field
+            if f_name in self.fields:
+                arcpy.DeleteField_management(self.name, f_name)
+            raise e
+        return
+
+    def calculate_area(self, field, unit):
+        """Add and calculate a new area field (FLOAT)."""
+        try:
+            arcpy.AddField_management(self.name, field, "FLOAT")
+        except:
+            pass
+        calc = "!shape.area@{}!".format(unit)
+        try:
+            arcpy.CalculateField_management(self.name, field, calc, "PYTHON")
+        except:
+            raise AttributeError("Unknown areal unit: {}".format(unit))
+        return
+
+    @property
+    def joins(self):
+        return self._joins
 
     def join(self, tbl, pkey, fkey):
         """Joins the current data with a table."""
@@ -458,38 +583,6 @@ class MemoryLayer(object):
         self.fmap.update()
         self._joins = j
         return
-
-    def add_field(self, f_name, f_type, f_len=10, code_blk="", calc="", alias=""):
-        """Add and calc a new field. Using Python of course!
-        Args:
-            f_name (str): name of new field
-            f_type (str): field type
-            f_len (int): length of field
-            code_blk (str): Python script to execute as pre-logic
-            calc (str): the calculation code to populate the field
-            alias (str): field alias
-        """
-        if not alias:
-            alias = f_name
-        f_name = f_name.replace(" ", "_")
-        if f_type.upper() in ["FLOAT", "DOUBLE"]:
-            f_len = 0
-        try:
-            arcpy.AddField_management(
-                self.name, f_name, f_type, "", "", f_len, alias)
-            if calc:
-                arcpy.CalculateField_management(
-                    self.name, f_name, calc, "PYTHON", code_blk)
-                return
-        except Exception as e:
-            # If an error with the calculation occurs, delete the created field
-            if f_name in self.fields:
-                arcpy.DeleteField_management(self.name, f_name)
-            raise e
-
-    @property
-    def joins(self):
-        return self._joins
 
     @property
     def defquery(self):
