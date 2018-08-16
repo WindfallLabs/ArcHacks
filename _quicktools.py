@@ -116,12 +116,11 @@ class Tool(object):
         self.params = []
         self.toolbox_name = toolbox_name
         # Metadata attributes
-        self.summary = ""
-        self.usage = ""
-        self.author = ""
-        self.credits = ""
-        self.license = ""
-        self.keywords = []
+        self.usage = "No useage set."
+        self.author = "No author set."
+        self.credits = "No credits set."
+        self.license = "No license set."
+        self.keywords = ["Tool"]
         self.__name__ = re.sub("\W", "", str(self.__class__).split(".")[-1])
 
     def _get_param_xml(self):
@@ -151,7 +150,7 @@ class Tool(object):
             "tool_name": self.__name__,
             "tool_label": self.label,
             "parameters_xml": self._get_param_xml(),
-            "summary": self.summary,
+            "summary": self.description,
             "usage": self.usage,
             "keywords_xml": u"".join(
                 [kw_xml.format(k) for k in self.keywords]),

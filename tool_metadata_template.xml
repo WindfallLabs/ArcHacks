@@ -18,11 +18,16 @@
 <parameters>
     {{parameters_xml}}
 </parameters>
+
 <summary>
-    &lt;DIV STYLE="text-align:Left;"&gt;&lt;DIV&gt;&lt;DIV&gt;&lt;P&gt;&lt;SPAN&gt;{{summary}}&lt;/SPAN&gt;&lt;/P&gt;&lt;/DIV&gt;&lt;/DIV&gt;&lt;/DIV&gt;
+    <DIV STYLE="text-align:Left;"><DIV><DIV><P><SPAN>
+        {{summary}}
+    </SPAN></P></DIV></DIV></DIV>
 </summary>
 <usage>
-    &lt;DIV STYLE="text-align:Left;"&gt;&lt;DIV&gt;&lt;DIV&gt;&lt;P&gt;&lt;SPAN&gt;{{usage}}&lt;/SPAN&gt;&lt;/P&gt;&lt;/DIV&gt;&lt;/DIV&gt;&lt;/DIV&gt;
+    <DIV STYLE="text-align:Left;"><DIV><DIV><P><SPAN>
+        {{usage}}
+    </SPAN></P></DIV></DIV></DIV>
 </usage>
 </tool>
 
@@ -33,26 +38,28 @@
     <searchKeys>
         {{keywords_xml}}
     </searchKeys>
-    <idAbs>&lt;DIV STYLE="text-align:Left;"&gt;&lt;DIV&gt;&lt;DIV&gt;&lt;P&gt;&lt;SPAN&gt;{{summary}}&lt;/SPAN&gt;&lt;/P&gt;&lt;/DIV&gt;&lt;/DIV&gt;&lt;/DIV&gt;</idAbs>
+    <idAbs><DIV STYLE="text-align:Left;"><DIV><DIV><P><SPAN>
+        {{summary}}
+    </SPAN></P></DIV></DIV></DIV></idAbs>
     <idCredit>{{author}}</idCredit>
     <resConst>
         <Consts>
             <useLimit>
-                &lt;DIV STYLE="text-align:Left;"&gt;&lt;P&gt;&lt;SPAN&gt;
+                <DIV STYLE="text-align:Left;"><P><SPAN>
                 MIT License
-                &lt;/SPAN&gt;&lt;/P&gt;&lt;P&gt;&lt;SPAN&gt;
-                Copyright (c) {{year}} Garin Wally / City of Missoula, Montana Development Services
-                &lt;/SPAN&gt;&lt;/P&gt;&lt;P&gt;&lt;SPAN&gt;
+                </SPAN></P><P><SPAN>
+                Copyright (c) 2018 Garin Wally / City of Missoula, Montana Development Services
+                </SPAN></P><P><SPAN>
                 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction,
                 including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished
                 to do so, subject to the following conditions:
-                &lt;/SPAN&gt;&lt;/P&gt;&lt;P&gt;&lt;SPAN&gt;
+                </SPAN></P><P><SPAN>
                 The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-                &lt;/SPAN&gt;&lt;/P&gt;&lt;P&gt;&lt;SPAN&gt;
+                </SPAN></P><P><SPAN>
                 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
                 NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
                 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-                &lt;/SPAN&gt;&lt;/P&gt;&lt;/DIV&gt;
+                </SPAN></P></DIV>
             </useLimit>
         </Consts>
     </resConst>
