@@ -15,13 +15,17 @@ your toolbox
 
 """
 
+import os
 import re
 import sys
-from string import ascii_uppercase
+from datetime import datetime
+from glob import glob
+# from string import ascii_uppercase
 
-import pandas as pd
+# import pandas as pd
 
 import arcpy
+import pybars
 
 
 '''
@@ -35,11 +39,9 @@ def get_layers():
 # =============================================================================
 # GLOBALS
 
-#REQUIRED = "Required"
-#OPTIONAL = "Optional"
 DERRIVED = "Derrived"
 
-REQUIRED = {True: "required", False: "Optional"}
+REQUIRED = {True: "Required", False: "Optional"}
 
 INPUT = "Input"
 
@@ -56,21 +58,39 @@ class ToolTemplate(archacks.Tool):
         pass
     """
 
+# Open metadata template files
+_compiler = pybars.Compiler()
+
+# Directory this library lives in
+_libdir = os.path.dirname(__file__)
+
+# Tool metadata
+_tmdp = os.path.join(_libdir, "tool_metadata_template.xml")
+with open(_tmdp, "r") as f:
+    metadata_template = _compiler.compile(unicode(f.read()))
+
+# Parameter metadata
+_pmdp = os.path.join(_libdir, "param_metadata_template.xml")
+with open(_pmdp, "r") as f:
+    #param_metadata_template = unicode(f.read())
+    param_metadata_template = _compiler.compile(unicode(f.read()))
+
 
 class _Toolbox(object):
     """Basic Toolbox Object."""
     label = ""
     alias = ""
-    #name = ""
 
     @property
     def tools(cls):
         """Dynamic list of tools in Python Toolbox script (.pyt)."""
+        # This strange bit of code finds all subclasses of archacks.Tool
+        #  and adds them into the Toolbox. Very convenient!
         return sys.modules["archacks"].Tool.__subclasses__()
 
 
 def make_toolbox(name):
-    """Creates local copy of Toolbox object. Output must be 'Toolbox'.
+    """Creates local Toolbox object. Must be saved to variable: 'Toolbox'.
     Args:
         name (str): name of toolbox (doesn't display in catalog)
     Use:
@@ -87,14 +107,63 @@ def make_toolbox(name):
 # =============================================================================
 # BASE TOOL CLASS
 
-#TODO: set main
 class Tool(object):
     """Base Tool Class."""
-    def __init__(self):
-        self.description = "DESC"
+    def __init__(self, toolbox_name=None):
+        self.description = "This tool does not have a description."
         self.is_licensed = True
         self.validate = False
         self.params = []
+        self.toolbox_name = toolbox_name
+        # Metadata attributes
+        self.summary = ""
+        self.usage = ""
+        self.author = ""
+        self.credits = ""
+        self.license = ""
+        self.keywords = []
+        self.__name__ = re.sub("\W", "", str(self.__class__).split(".")[-1])
+
+    def _get_param_xml(self):
+        """Writes XML metadata for each parameter."""
+        if len(self.params) > 0:
+            xmls = []
+            for param in self.params:
+                xmls.append(
+                    param_metadata_template({
+                        "param_name": param.name,
+                        "param_label": param.displayName,
+                        "param_is_required": param.is_required,
+                        "param_direction": param.direction,
+                        "param_type": param.datatype,
+                        "param_desc": param.description}))
+            xml = unicode("".join(xmls))
+            xml = xml.replace("&lt;", "<").replace("&gt;", ">")
+            return xml
+        return
+
+    def write_metadata(self, output_xml):
+        kw_xml = u"<keyword>{}</keyword>"
+        metadata = metadata_template({
+            "date": datetime.now().strftime("%Y%m%d"),
+            "time": datetime.now().strftime("%H%M%S00"),
+            "year": datetime.now().strftime("%Y"),
+            "tool_name": self.__name__,
+            "tool_label": self.label,
+            "parameters_xml": self._get_param_xml(),
+            "summary": self.summary,
+            "usage": self.usage,
+            "keywords_xml": u"".join(
+                [kw_xml.format(k) for k in self.keywords]),
+            "author": self.author,
+            "credits": self.credits
+            }
+        )
+        metadata = metadata.replace("&lt;", "<").replace("&gt;", ">")
+        metadata = metadata.replace("&quot;", '"')
+        with open(output_xml, "w") as f:
+            f.write(metadata)
+        return
 
     def make(new_tool_self):
         """Initializes a subclass of the base Tool class."""
@@ -102,6 +171,7 @@ class Tool(object):
         Tool.__init__(new_tool_self)
         return
 
+    '''
     @property
     def label(self):
         """Tool label (adds spaces to class name)."""
@@ -111,6 +181,7 @@ class Tool(object):
                 name = name.replace(letter, " {}".format(letter))
         name = re.sub(" {2,}", " ", name)
         return name.strip()
+    '''
 
     def getParameterInfo(self):
         return self.params
@@ -125,12 +196,11 @@ class Tool(object):
             pass
 
     def updateMessages(self, parameters):
-        if self.validate:
-            pass
-        else:
-            pass
+        # TODO: this version does not currently support arcpy Messages
+        pass
 
     def execute(self, parameters, messages):
+        """Controls the execution of the 'main' function."""
         # Add messages for each parameter
         [arcpy.AddMessage("Param: {}".format(p.valueAsText))
          for p in parameters]
@@ -146,13 +216,13 @@ class Tool(object):
 # These sort of behave like classes hence the TitleCase
 # TODO: move to arcpy.tools.inputs ?
 
-from types import MethodType
+# from types import MethodType
 
 class _Params(object):
     def __init__(self):
-        pass
+        self._default_description = "No description for this parameter."
 
-    def _make_param(self, label, required=True):
+    def _make_param(self, label, is_required=True, description=""):
         """Tool Parameter."""
         REQUIRED = {True: "required", False: "Optional"}
         param = arcpy.Parameter(
@@ -160,19 +230,28 @@ class _Params(object):
             # Name is derrived from label: lowercase and change spaces to '_'
             name=re.sub("\W", "", label.lower().replace(" ", "_")),
             datatype="GPString",
-            parameterType=REQUIRED[required],
+            parameterType=REQUIRED[is_required],
             direction="Input")
-        setattr(param, "is_required", required)
+        setattr(param, "is_required", is_required)
+        # Set description to default if none given
+        if not description:
+            description = self._default_description
+        # Create a new attribute on the parameter object
+        setattr(param, "description", description)
         return param
 
-    def string(self, label, required=True, default_value=None):
-        param = self._make_param(label, required)
+    def string(self, label, is_required=True, default_value=None,
+               description=""):
+        """Accepts an input string."""
+        param = self._make_param(label, is_required, description)
         # Note: ESRI coded their own value validation
         param.value = default_value
         return param
 
-    def double(self, label, required=True, default_value=None):
-        param = self._make_param(label, required)
+    def double(self, label, is_required=True, default_value=None,
+               description=""):
+        """Accepts an input float/double."""
+        param = self._make_param(label, is_required, description)
         param.datatype = "GPDouble"
         try:
             param.value = default_value
@@ -180,9 +259,16 @@ class _Params(object):
             pass
         return param
 
-    def valuelist(self, label, name, columns, values, required=True):
+    def checkbox(self, label, is_required=True, description=""):
+        """Creates a single boolean yes/no checkbox."""
+        param = self._make_param(label, is_required, description)
+        param.datatype = "GPBoolean"
+        return param
+
+    def valuelist(self, label, name, columns, values, is_required=True,
+                  description=""):
         """ValueTable Tool Parameter."""
-        param = self._make_param(label, required)
+        param = self._make_param(label, is_required, description)
         param.datatype = "GPValueTable"
         param.columns = columns
         param.filters[0].type = "ValueList"

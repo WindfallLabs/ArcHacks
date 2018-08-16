@@ -1,0 +1,71 @@
+<metadata xml:lang="en">
+<Esri>
+    <CreaDate>{{date}}</CreaDate>
+    <CreaTime>{{time}}</CreaTime>
+    <ArcGISFormat>1.0</ArcGISFormat>
+    <SyncOnce>TRUE</SyncOnce>
+    <ModDate>{{date}}</ModDate>
+    <ModTime>{{time}}</ModTime>
+    <scaleRange>
+        <minScale>150000000</minScale>
+        <maxScale>5000</maxScale>
+    </scaleRange>
+    <ArcGISProfile>ItemDescription</ArcGISProfile>
+</Esri>
+
+<tool name="{{tool_name}}" displayname="{{tool_label}}" toolboxalias="  main  " xmlns="">
+<arcToolboxHelpPath>c:\program files (x86)\arcgis\desktop10.4\Help\gp</arcToolboxHelpPath>
+<parameters>
+    {{parameters_xml}}
+</parameters>
+<summary>
+    &lt;DIV STYLE="text-align:Left;"&gt;&lt;DIV&gt;&lt;DIV&gt;&lt;P&gt;&lt;SPAN&gt;{{summary}}&lt;/SPAN&gt;&lt;/P&gt;&lt;/DIV&gt;&lt;/DIV&gt;&lt;/DIV&gt;
+</summary>
+<usage>
+    &lt;DIV STYLE="text-align:Left;"&gt;&lt;DIV&gt;&lt;DIV&gt;&lt;P&gt;&lt;SPAN&gt;{{usage}}&lt;/SPAN&gt;&lt;/P&gt;&lt;/DIV&gt;&lt;/DIV&gt;&lt;/DIV&gt;
+</usage>
+</tool>
+
+<dataIdInfo>
+    <idCitation>
+        <resTitle>{{tool_label}}</resTitle>
+    </idCitation>
+    <searchKeys>
+        {{keywords_xml}}
+    </searchKeys>
+    <idAbs>&lt;DIV STYLE="text-align:Left;"&gt;&lt;DIV&gt;&lt;DIV&gt;&lt;P&gt;&lt;SPAN&gt;{{summary}}&lt;/SPAN&gt;&lt;/P&gt;&lt;/DIV&gt;&lt;/DIV&gt;&lt;/DIV&gt;</idAbs>
+    <idCredit>{{author}}</idCredit>
+    <resConst>
+        <Consts>
+            <useLimit>
+                &lt;DIV STYLE="text-align:Left;"&gt;&lt;P&gt;&lt;SPAN&gt;
+                MIT License
+                &lt;/SPAN&gt;&lt;/P&gt;&lt;P&gt;&lt;SPAN&gt;
+                Copyright (c) {{year}} Garin Wally / City of Missoula, Montana Development Services
+                &lt;/SPAN&gt;&lt;/P&gt;&lt;P&gt;&lt;SPAN&gt;
+                Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction,
+                including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished
+                to do so, subject to the following conditions:
+                &lt;/SPAN&gt;&lt;/P&gt;&lt;P&gt;&lt;SPAN&gt;
+                The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+                &lt;/SPAN&gt;&lt;/P&gt;&lt;P&gt;&lt;SPAN&gt;
+                THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+                NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+                OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+                &lt;/SPAN&gt;&lt;/P&gt;&lt;/DIV&gt;
+            </useLimit>
+        </Consts>
+    </resConst>
+</dataIdInfo>
+<distInfo>
+    <distributor>
+        <distorFormat>
+            <formatName>ArcToolbox Tool</formatName>
+        </distorFormat>
+    </distributor>
+</distInfo>
+
+<mdHrLv>
+    <ScopeCd value="005"/>
+    </mdHrLv>
+</metadata>

@@ -1,0 +1,3 @@
+<param name="{{param_name}}" displayname="{{param_label}}" type="{{param_is_required}}" direction="{{param_direction}}" datatype="{{param_type}}" expression="{{param_name}}">
+    <dialogReference>&lt;DIV STYLE="text-align:Left;"&gt;&lt;DIV&gt;&lt;P&gt;&lt;SPAN&gt;{{param_desc}}&lt;/SPAN&gt;&lt;/P&gt;&lt;/DIV&gt;&lt;/DIV&gt;</dialogReference>
+</param>
