@@ -170,6 +170,12 @@ class Tool(object):
         Tool.__init__(new_tool_self)
         return
 
+    ''' # TODO: get parameter access from source code
+    @property
+    def param_values(self):
+        return [p.valueAsText for p in None]
+    '''
+
     '''
     @property
     def label(self):
@@ -214,8 +220,11 @@ class Tool(object):
 # INPUTS -- wrappers for arcpy.Parameter()
 # These sort of behave like classes hence the TitleCase
 # TODO: move to arcpy.tools.inputs ?
+# Tool Parameter Help
+'''
+https://pro.arcgis.com/en/pro-app/arcpy/geoprocessing_and_python/defining-parameter-data-types-in-a-python-toolbox.htm
+'''
 
-# from types import MethodType
 
 class _Params(object):
     def __init__(self):
@@ -239,6 +248,22 @@ class _Params(object):
         setattr(param, "description", description)
         return param
 
+    def folder(self, label, is_required=True, default_value=None,
+               description=""):
+        """Accepts a directory / folder path string."""
+        param = self._make_param(label, is_required, description)
+        param.datatype = "DEFolder"
+        param.value = default_value
+        return param
+
+    def file(self, label, is_required=True, default_value=None,
+             description=""):
+        """Accepts a file path string."""
+        param = self._make_param(label, is_required, description)
+        param.datatype = "DEFile"
+        param.value = default_value
+        return param
+
     def string(self, label, is_required=True, default_value=None,
                description=""):
         """Accepts an input string."""
@@ -258,10 +283,12 @@ class _Params(object):
             pass
         return param
 
-    def checkbox(self, label, is_required=True, description=""):
+    def checkbox(self, label, is_required=True, default_value="false",
+                 description=""):
         """Creates a single boolean yes/no checkbox."""
         param = self._make_param(label, is_required, description)
         param.datatype = "GPBoolean"
+        param.value = default_value
         return param
 
     def valuelist(self, label, name, columns, values, is_required=True,
