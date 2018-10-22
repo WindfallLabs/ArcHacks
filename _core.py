@@ -6,6 +6,7 @@ License: MIT
 """
 
 import os
+import random
 import re
 import sys
 #from time import sleep
@@ -612,6 +613,42 @@ def field_by_regex(fc, field_regex, escape_tables=True):
         if re.findall(field_regex, f.name):
             yield f.name
 
+
+def select_random(layer, field, sample_size, filter_lambda=None):
+    """Selects a random number of features from a layer.
+    Args:
+        layer (str): name of a layer in the TOC
+        field (str): name of a field/attribute in the layer
+        sample_size (int): number of random features to select
+        filter_lambda (function): optionally filter the set using a function
+    Example:
+        # Select 10 random parcels that do not have a "7" at position -4
+        #  in the 'ParcelID' field
+        >>> select_random("Parcels", "ParcelID", 10, lambda x: x[-4] <> "7")
+    """
+    # TODO: test
+    # TODO: allow ADD_TO_SELECTION option
+    # TODO: allow lambda access to any field value
+    # Get the layer as a dataframe of unique values
+    df = tbl2df(layer, field).drop_duplicates()
+    # Create empty set
+    s = set()
+    while len(s) < sample_size:
+        # Add a distinct random value to the set
+        s.add(random.choice(df[field].tolist()))
+        # Optionally reduce the set using an input function
+        if filter_lambda:
+            s = set(filter(filter_lambda, s))
+    # Select the features in the set
+    arcpy.SelectLayerByAttribute_management(
+        layer,
+        "NEW_SELECTION",
+        # Create a WHERE IN statement
+        # e.g. `"ParcelID" IN ('040000', '040001')`
+        "\"{field}\" IN ({values})".format(
+            field="ParcelID",
+            values=", ".join(["'" + v + "'" for v in s])))
+    return
 
 # =============================================================================
 # QUERIES
