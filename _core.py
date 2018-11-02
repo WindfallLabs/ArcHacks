@@ -280,8 +280,50 @@ class Map(object):
         return
 
 
+def spatial_field_calc(target_features, output, target_field, join_features,
+                       join_field, merge_rule, match_option="INTERSECT",
+                       default_value=None):
+    """Adds a new field to target features via a spatial join.
+    Args:
+        #
+    Example:
+        >>> spatial_field_calc("parcels", "in_memory/sfieldcalc",
+            "dwellings17", "permits17", "dwellings", "sum")
+    """
+    # Set field mappings from target_features
+    fieldmappings = arcpy.FieldMappings()
+    fieldmappings.addTable(target_features)
 
+    # Set field mappings from join_features
+    join_map = arcpy.FieldMappings()
+    join_map.addTable(join_features)
 
+    # Edit the output fieldmap
+    field_map = join_map.getFieldMap(join_map.findFieldMapIndex(join_field))
+    jfield = field_map.outputField
+    # Name output field
+    jfield.name = target_field
+    jfield.aliasName = target_field
+    # Overwrite old field data with new
+    field_map.outputField = jfield
+    field_map.mergeRule = merge_rule
+
+    # Add the edited join_field fieldmap from join_features to target_features
+    fieldmappings.addFieldMap(field_map)
+
+    # Execute the spatial join
+    result = arcpy.SpatialJoin_analysis(target_features, join_features, output,
+                                        "#", "#", fieldmappings,
+                                        match_option=match_option)
+
+    # Convert NULL values to default_value
+    with arcpy.da.UpdateCursor(output, [target_field]) as cur:
+        for row in cur:
+            if row[0] is None:
+                row[0] = default_value
+                cur.updateRow(row)
+
+    return result
 
 
 class TableOfContents(object):
