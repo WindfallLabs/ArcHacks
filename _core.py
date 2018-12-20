@@ -6,6 +6,7 @@ License: MIT
 """
 
 import os
+import glob
 import random
 import re
 import sys
@@ -138,6 +139,7 @@ class GDB(object):
         return
     '''
 
+
 def df2tbl(df, out_path):
     # Convert dataframe to array
     a = np.array(np.rec.fromrecords(df.values))
@@ -169,7 +171,19 @@ def domain2tbl(workspace, domain, output):
     return
 
 
-
+def mxds2pdfs(in_folder, out_folder, verbose=False):
+    """Exports all .mxd files in a folder to .pdf files in a folder."""
+    for mxd_file in glob.glob("{}/*.mxd".format(in_folder)):
+        mxd_file = os.path.join(in_folder, mxd_file)
+        mxd = arcpy.mapping.MapDocument(mxd_file)
+        pdf_name = os.path.basename(mxd_file).replace(".mxd", ".pdf")
+        out_pdf = os.path.join(
+            out_folder,
+            pdf_name)
+        if verbose:
+            print(pdf_name)
+        arcpy.mapping.ExportToPDF(mxd, out_pdf)
+    return
 
 
 class DataFramesWrapper(object):
